@@ -65,11 +65,7 @@ class L2NormConv2d(nn.Module):
                 self.kernel_size,
             )
         )
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(self.out_channels))
-        else:
-            self.bias = None
-
+        self.bias = nn.Parameter(torch.Tensor(self.out_channels)) if bias else None
         self.beta = nn.Parameter(
             torch.zeros([1, out_channels, 1, 1], dtype=torch.float32)
         )
@@ -77,10 +73,7 @@ class L2NormConv2d(nn.Module):
             torch.ones([1, out_channels, 1, 1], dtype=torch.float32)
         )
         # init
-        if callable(init):
-            self.init_fn = init
-        else:
-            self.init_fn = lambda: False
+        self.init_fn = init if callable(init) else (lambda: False)
         normal_(self.weight, mean=0.0, std=0.05)
         if self.bias is not None:
             fan_in, _ = _calculate_fan_in_and_fan_out(self.weight)
@@ -149,7 +142,7 @@ class NormConv2d(nn.Module):
 class Downsample(nn.Module):
     def __init__(self, channels, out_channels=None, conv_layer=NormConv2d):
         super().__init__()
-        if out_channels == None:
+        if out_channels is None:
             self.down = conv_layer(
                 channels, channels, kernel_size=3, stride=2, padding=1
             )
@@ -166,13 +159,12 @@ class BasicFullyConnectedNet(nn.Module):
     def __init__(self, dim, depth, hidden_dim=256, use_tanh=False, use_bn=False,
                  out_dim=None, data_init=False, last_zero=False):
         super(BasicFullyConnectedNet, self).__init__()
-        layers = []
         module = CustomLinear if data_init else nn.Linear
-        layers.append(module(dim, hidden_dim))
+        layers = [module(dim, hidden_dim)]
         if use_bn:
             layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(nn.LeakyReLU())
-        for d in range(depth):
+        for _ in range(depth):
             layers.append(module(hidden_dim, hidden_dim))
             if use_bn:
                 layers.append(nn.BatchNorm1d(hidden_dim))
@@ -195,17 +187,18 @@ class BasicResNet(nn.Module):
     def __init__(self, dim, depth, hidden_dim=256, use_tanh=False,
                  out_dim=None, data_init=False, last_zero=False):
         super().__init__()
-        layers = []
         winit = 'data' if data_init else 'xavier'
         # initialization scheme for last layer depends on last_zero-parameter
         linit = 'zeros' if last_zero else winit
 
-        layers.append(GatedConv2d(dim,dim_out=hidden_dim,winit=winit))
-        layers.append(nn.LeakyReLU())
-        for d in range(depth):
-            layers.append(GatedConv2d(hidden_dim, dim_out=hidden_dim,winit=winit))
-            layers.append(nn.LeakyReLU())
-
+        layers = [GatedConv2d(dim,dim_out=hidden_dim,winit=winit), nn.LeakyReLU()]
+        for _ in range(depth):
+            layers.extend(
+                (
+                    GatedConv2d(hidden_dim, dim_out=hidden_dim, winit=winit),
+                    nn.LeakyReLU(),
+                )
+            )
         layers.append(GatedConv2d(hidden_dim, dim_out=out_dim,winit=linit))
         if use_tanh:
             layers.append(nn.Tanh())
@@ -586,14 +579,14 @@ class ARFullyConnectedNet(nn.Module):
                     y = nn.functional.relu(y)
                 y = self.condnet[i](y)
                 x = self.net[i](x) + y
-            return x
         else:
             assert y is None
             for i in range(len(self.net)):
                 if i > 0:
                     x = nn.functional.relu(x)
                 x = self.net[i](x)
-            return x
+
+        return x
 
 
 class BasicUnConnectedNet(nn.Module):
@@ -605,11 +598,9 @@ class BasicUnConnectedNet(nn.Module):
         assert self.out_dim % self.dim == 0
         self.factor = self.out_dim // self.dim
 
-        layers = []
-        layers.append(nn.Conv1d(in_channels=1, out_channels=hidden_dim,
-                                kernel_size=1))
+        layers = [nn.Conv1d(in_channels=1, out_channels=hidden_dim, kernel_size=1)]
         layers.append(nn.LeakyReLU())
-        for d in range(depth):
+        for _ in range(depth):
             layers.append(nn.Conv1d(in_channels=hidden_dim,
                                     out_channels=hidden_dim, kernel_size=1))
             layers.append(nn.LeakyReLU())
@@ -837,10 +828,7 @@ class GatedConv2d(nn.Module):
             assert dim_cond is not None
             self.cond_conv = Conv2d(dim_multiplier*dim_cond,dim,3,1,1,initializer=winit)
 
-        if p_dropout > 0:
-            self.dropout = nn.Dropout(p=p_dropout)
-        else:
-            self.dropout = None
+        self.dropout = nn.Dropout(p=p_dropout) if p_dropout > 0 else None
 
 
 
@@ -874,11 +862,7 @@ class GatedAttentionLayer(nn.Module):
         self.proj_2 = NIN(self.channels,2*self.channels,initializer=winit)
 
 
-        if p_dropout > 0:
-            self.dropout = nn.Dropout(p=p_dropout)
-        else:
-            self.dropout = None
-
+        self.dropout = nn.Dropout(p=p_dropout) if p_dropout > 0 else None
         self.softm = nn.Softmax(-1)
         self.gate = Gate(1)
 
@@ -936,7 +920,7 @@ class MixCDFParameterTemplate(nn.Module):
         self.conv_in = Conv2d(self.c,hidden_dim,3,1,1,initializer=winit)
 
         self.blocks = nn.ModuleList()
-        for n in range(blocks):
+        for _ in range(blocks):
             self.blocks.append(BasicConvAttnBlock(hidden_shape,heads,cond,
                                                   cond_channels,p_dropout,winit=winit))
 
@@ -980,7 +964,7 @@ class MixCDFParameterTemplate2(nn.Module):
         self.conv_in = Conv2d(self.c,hidden_dim,3,1,1)
 
         self.blocks = nn.ModuleList()
-        for n in range(blocks):
+        for _ in range(blocks):
             self.blocks.append(BasicConvAttnBlock(hidden_shape,heads,cond,
                                                   cond_channels,p_dropout))
 
@@ -1062,10 +1046,7 @@ class MixLogPDF(nn.Module):
 
         sumexp = prior + self.logpdf(x.unsqueeze(self.dim),means,logscales)
         log_mix_log_cdf = torch.logsumexp(sumexp,self.dim)
-        if exp:
-            return torch.exp(log_mix_log_cdf)
-        else:
-            return log_mix_log_cdf
+        return torch.exp(log_mix_log_cdf) if exp else log_mix_log_cdf
 
 def inv_mixlogcdf(y,prior_logits, means, logscales, tol=1e-10,max_iter=500,dim=2):
     """
@@ -1145,10 +1126,7 @@ class MultiHeadAttention2d(nn.Module):
         super(MultiHeadAttention2d, self).__init__()
         self.proj = Conv2dWeightNorm(channels, 3 * channels, 1, bias=True)
         self.softmax = nn.Softmax(dim=-1)
-        if dropout > 0.:
-            self.dropout = nn.Dropout(dropout)
-        else:
-            self.dropout = None
+        self.dropout = nn.Dropout(dropout) if dropout > 0. else None
         assert channels % heads == 0
         self.features = channels
         self.heads = heads
@@ -1280,10 +1258,7 @@ class NICESelfAttnBlock(nn.Module):
         # unslice2d
         # [batch, hidden, height, width]
         x = self.unslice2d(x, height, width, init=False)
-        # compute output
-        # [batch, out, height, width]
-        out = self.nin3(x)
-        return out
+        return self.nin3(x)
 
     def slice2d(self, x: torch.Tensor, slice_height, slice_width, init, init_scale=1.0) -> torch.Tensor:
         batch, n_channels, height, width = x.size()
@@ -1472,11 +1447,15 @@ class ShiftedConv2d(Conv2dWeightNorm):
     def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), dilation=1, groups=1, bias=True, order='A'):
         assert len(stride) == 2
         assert len(kernel_size) == 2
-        assert order in {'A', 'B', 'C', 'D'}, 'unknown order: {}'.format(order)
+        assert order in {'A', 'B', 'C', 'D'}, f'unknown order: {order}'
         if order in {'A', 'B'}:
-            assert kernel_size[1] % 2 == 1, 'kernel width cannot be even number: {}'.format(kernel_size)
+            assert (
+                kernel_size[1] % 2 == 1
+            ), f'kernel width cannot be even number: {kernel_size}'
         else:
-            assert kernel_size[0] % 2 == 1, 'kernel height cannot be even number: {}'.format(kernel_size)
+            assert (
+                kernel_size[0] % 2 == 1
+            ), f'kernel height cannot be even number: {kernel_size}'
 
         self.order = order
         if order == 'A':
@@ -1500,7 +1479,7 @@ class ShiftedConv2d(Conv2dWeightNorm):
             # top, bottom, left, right
             self.cut = (0, 0, 1, 0)
         else:
-            raise ValueError('unknown order: {}'.format(order))
+            raise ValueError(f'unknown order: {order}')
 
         super(ShiftedConv2d, self).__init__(in_channels, out_channels, kernel_size, padding=0,
                                             stride=stride, dilation=dilation, groups=groups, bias=bias)

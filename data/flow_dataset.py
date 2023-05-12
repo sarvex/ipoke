@@ -55,10 +55,6 @@ class PlantDataset(BaseDataset):
 
 
 
-        # if path.isfile(path.join(self.datapath,"dataset_stats.p")) and self.normalize_flows:
-            # with open(path.join(self.datapath,"dataset_stats.p"),"rb") as norm_file:
-            #     self.flow_norms = pickle.load(norm_file)
-
         # choose filter procedure
         available_frame_nrs = np.asarray([int(p.split("/")[-1].split(".")[0].split("_")[-1]) - int(p.split("/")[-1].split(".")[0].split("_")[-2]) for p in self.data["flow_paths"][0]])
         # filter invalid flow_paths
@@ -93,18 +89,24 @@ class PlantDataset(BaseDataset):
 
 
             available_frame_nrs = np.asarray([int(p.split("/")[-1].split(".")[0].split("_")[-1]) - int(p.split("/")[-1].split(".")[0].split("_")[-2]) for p in self.data["flow_paths"][0]])
-            self.data.update({"max_fid": np.zeros((np.asarray(self.data["fid"]).shape[0],max(len(available_frame_nrs),self.valid_lags[0]+1)),dtype=np.int)})
+            self.data["max_fid"] = np.zeros(
+                (
+                    np.asarray(self.data["fid"]).shape[0],
+                    max(len(available_frame_nrs), self.valid_lags[0] + 1),
+                ),
+                dtype=np.int,
+            )
             for vid in np.unique(self.data["vid"]):
                 self.data["max_fid"][self.data["vid"] == vid] = np.amax(self.data["fid"][self.data["vid"] == vid])
 
         # if not self.var_sequence_length and not self.normalize_flows or self.normalize_and_fixed_length:
         # reset valid_lags, such that always the right flow which corresponds to the respective sequence length, is chosen
-        if not self.__class__.__name__ == "Human36mDataset":
+        if self.__class__.__name__ != "Human36mDataset":
             available_frame_nrs = np.asarray([int(p.split("/")[-1].split(".")[0].split("_")[-1]) - int(p.split("/")[-1].split(".")[0].split("_")[-2])  for p in self.data["flow_paths"][0]])
             if "n_ref_frames" not in self.config:
                 assert self.max_frames * self.subsample_step in available_frame_nrs
                 right_lag = int(np.argwhere(available_frame_nrs == self.max_frames * self.subsample_step))
-                self.logger.info(f'Last frames of sequence serves as target frame.')
+                self.logger.info('Last frames of sequence serves as target frame.')
             else:
                 self.logger.info(f'Number of frames in between target and start frames is {self.config["n_ref_frames"]}')
                 assert self.config["n_ref_frames"]*self.subsample_step in available_frame_nrs
@@ -156,11 +158,13 @@ class PlantDataset(BaseDataset):
         seids = np.asarray([self.eids_per_seq[self.datadict["vid"][i]] for i in range(self.datadict["img_path"].shape[0])],dtype=np.int)
         self.datadict.update({"seq_end_id": seids})
 
-        self.sids_per_seq = {vid:i for vid,i in zip(vids,start_ids)}
+        self.sids_per_seq = dict(zip(vids,start_ids))
 
-        self.seq_len_T_chunk = {l: c for l,c in enumerate(np.linspace(0,self.flow_cutoff,self.max_frames,endpoint=False))}
-        # add last chunk
-        self.seq_len_T_chunk.update({self.max_frames: self.flow_cutoff})
+        self.seq_len_T_chunk = dict(
+            enumerate(
+                np.linspace(0, self.flow_cutoff, self.max_frames, endpoint=False)
+            )
+        ) | {self.max_frames: self.flow_cutoff}
         # if self.var_sequence_length:
         #     if "flow_range" in self.datadict.keys():
         #         self.ids_per_seq_len = {length: np.flatnonzero(np.logical_and(np.logical_and(self.datadict["flow_range"][:,1]>self.seq_len_T_chunk[length],
@@ -277,8 +281,6 @@ class PlantDataset(BaseDataset):
     def _make_split(self,data):
 
         vids = np.unique(self.data["vid"])
-        split_data = {"train": {}, "test": {}}
-
         if self.split == "videos":
             # split such that some videos are held back for testing
             self.logger.info("Splitting data after videos")
@@ -287,15 +289,8 @@ class PlantDataset(BaseDataset):
             train_vids = shuffled_vids[: int(0.8 * shuffled_vids.shape[0])]
             train_indices = np.nonzero(np.isin(data["vid"], train_vids))[0]
             test_indices = np.nonzero(np.logical_not(train_indices))[0]
-            split_data["train"] = {
-                key: data[key][train_indices] for key in data
-            }
-            split_data["test"] = {
-                key: data[key][test_indices] for key in data
-            }
-
         else:
-            self.logger.info(f"splitting data across_videos")
+            self.logger.info("splitting data across_videos")
             train_indices = np.asarray([],dtype=np.int)
             test_indices = np.asarray([], dtype=np.int)
             for vid in vids:
@@ -306,13 +301,10 @@ class PlantDataset(BaseDataset):
                 test_indices = np.append(test_indices,indices[int(0.8 * indices.shape[0]) :])
 
 
-            split_data["train"] = {
-                key: data[key][train_indices] for key in data
-            }
-            split_data["test"] = {
-                key: data[key][test_indices] for key in data
-            }
-
+        split_data = {
+            "train": {key: data[key][train_indices] for key in data},
+            "test": {key: data[key][test_indices] for key in data},
+        }
         return split_data, train_indices, test_indices
 
 
@@ -336,17 +328,13 @@ class VegetationDataset(PlantDataset):
         # self.flow_weights = False
 
     def _make_split(self,data):
-        split_data = {"train":{},"test":{}}
         train_ids = np.flatnonzero(data["train"])
         test_ids = np.flatnonzero(np.logical_not(data["train"]))
         assert np.intersect1d(train_ids,test_ids).size == 0
-        split_data["train"] = {
-                key: data[key][train_ids] for key in data
-            }
-        split_data["test"] = {
-            key: data[key][test_ids] for key in data
+        split_data = {
+            "train": {key: data[key][train_ids] for key in data},
+            "test": {key: data[key][test_ids] for key in data},
         }
-
         return split_data, train_ids, test_ids
 
 
@@ -449,7 +437,7 @@ class IperDataset(PlantDataset):
 
             vids = np.unique(self.data["vid"])
 
-            self.logger.info(f"splitting data across_videos")
+            self.logger.info("splitting data across_videos")
             train_indices = np.asarray([], dtype=np.int)
             test_indices = np.asarray([], dtype=np.int)
             for vid in vids:
@@ -501,8 +489,7 @@ class IperDataset(PlantDataset):
                 kps = kps  / (256 / self.config['spatial_size'][0])
             kps_list.append(torch.from_numpy(kps))
 
-        kps_out = torch.stack(kps_list).squeeze(0)
-        return kps_out
+        return torch.stack(kps_list).squeeze(0)
 
     def _get_nn(self,ids, sample_idx, transforms=None, sample=False, use_fb_aug=False,**kwargs):
 
@@ -514,7 +501,7 @@ class IperDataset(PlantDataset):
         imgs = []
 
         for i, idx in enumerate(yield_ids):
-            faug = use_fb_aug and (i == 0 or i == len(yield_ids) - 1)
+            faug = use_fb_aug and i in [0, len(yield_ids) - 1]
 
             img_path = self.datadict["img_path"][idx]
             img = cv2.imread(img_path)
@@ -601,7 +588,7 @@ class Human36mDataset(PlantDataset):
         elif self.split == "gui":
             vids = np.unique(self.data["vid"])
 
-            self.logger.info(f"splitting data across_videos")
+            self.logger.info("splitting data across_videos")
             train_indices = np.asarray([], dtype=np.int)
             test_indices = np.asarray([], dtype=np.int)
             for vid in vids:
@@ -667,7 +654,7 @@ def get_nn(ids,dataset, save_dir=None, visualize = False):
         nn_general[c] = nn_gen
         nn_other_vid[c] = nn_ov
 
-    print(f'Finished nearest neighbour computation')
+    print('Finished nearest neighbour computation')
 
     if visualize:
         assert save_dir is not None

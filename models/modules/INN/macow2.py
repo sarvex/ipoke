@@ -60,7 +60,7 @@ class MaskedConvFlow(nn.Module):
             self.analytic_bwd = False
             out_channels = out_channels * 2
         else:
-            raise ValueError('unknown transform: {}'.format(transform))
+            raise ValueError(f'unknown transform: {transform}')
         self.kernel_size = kernel_size
         self.order = order
         self.net = MCFBlock(in_channels, out_channels, kernel_size,
@@ -87,8 +87,7 @@ class MaskedConvFlow(nn.Module):
         #     raise ValueError('unknown conditional transform: {}'.format(h_type))
 
     def calc_params(self, x: torch.Tensor, h=None, shifted=True):
-        params = self.net(x, h=h, shifted=shifted)
-        return params
+        return self.net(x, h=h, shifted=shifted)
 
     # def init_net(self, x, h=None, init_scale=1.0):
     #     params = self.net.init(x, h=h, init_scale=init_scale)
@@ -138,27 +137,19 @@ class MaskedConvFlow(nn.Module):
         # else:
         #     h = hh = None
         if self.order == 'A':
-            out = self.backward_height(z, hh=h, reverse=False)
+            return self.backward_height(z, hh=h, reverse=False)
         elif self.order == 'B':
-            out = self.backward_height(z, hh=h, reverse=True)
+            return self.backward_height(z, hh=h, reverse=True)
         elif self.order == 'C':
-            out = self.backward_width(z, hh=h, reverse=False)
+            return self.backward_width(z, hh=h, reverse=False)
         else:
-            out = self.backward_width(z, hh=h, reverse=True)
-
-        # params = self.transform.calc_params(self.calc_params(input_params, h=h))
-        # _, logdet = self.transform.fwd(out, params)
-        return out#, logdet.mul(-1.0)
+            return self.backward_width(z, hh=h, reverse=True)
 
     def backward_iterative(self, z: torch.Tensor, h=None, maxIter=100):
-        if self.h_net is not None:
-            h = self.h_net(h)
-        else:
-            h = None
-
+        h = self.h_net(h) if self.h_net is not None else None
         z_org = z
         eps = 1e-6
-        for iter in range(maxIter):
+        for _ in range(maxIter):
             params = self.transform.calc_params(self.calc_params(z, h=h))
             new_z, logdet = self.transform.bwd(z, params)
             new_z = z_org - new_z
@@ -337,7 +328,7 @@ class NICE2d(nn.Module):
             self.analytic_bwd = False
             out_channels = out_channels * 2
         else:
-            raise ValueError('unknown transform: {}'.format(transform))
+            raise ValueError(f'unknown transform: {transform}')
 
 
         assert type in ['conv']
@@ -374,7 +365,7 @@ class NICE2d(nn.Module):
             z2 = z.index_select(split_dim, idx2)
             return z1, z2
         else:
-            raise ValueError('unknown split type: {}'.format(split_type))
+            raise ValueError(f'unknown split type: {split_type}')
 
     def unsplit(self, z1, z2):
         split_dim = 1
@@ -387,11 +378,10 @@ class NICE2d(nn.Module):
             idx = torch.tensor([i // 2 if i % 2 == 0 else i // 2 + dim for i in range(dim * 2)]).to(z.device)
             return z.index_select(split_dim, idx)
         else:
-            raise ValueError('unknown split type: {}'.format(split_type))
+            raise ValueError(f'unknown split type: {split_type}')
 
     def calc_params(self, z: torch.Tensor, h=None):
-        params = self.net(z, h=h)
-        return params
+        return self.net(z, h=h)
 
 
     def forward(self, input: torch.Tensor, h=None,reverse=False):
@@ -406,27 +396,27 @@ class NICE2d(nn.Module):
             out: [batch, in_channels, H, W], the output of the flow
             logdet: [batch], the log determinant of :math:`\partial output / \partial input`
         """
-        if not reverse:
-            # [batch, length, in_channels]
-            z1, z2 = self.split(input)
-            # [batch, length, features]
-            z, zp = (z1, z2) if self.up else (z2, z1)
+        if reverse:
+            return (
+                self.backward_analytic(input, h=h)
+                if self.analytic_bwd
+                else self.backward_iterative(input, h=h)
+            )
+        # [batch, length, in_channels]
+        z1, z2 = self.split(input)
+        # [batch, length, features]
+        z, zp = (z1, z2) if self.up else (z2, z1)
 
-            # if self.h_net is not None:
-            #     h = self.h_net(h, x=z)
-            # else:
-            #     h = None
+        # if self.h_net is not None:
+        #     h = self.h_net(h, x=z)
+        # else:
+        #     h = None
 
-            params = self.transform.calc_params(self.calc_params(z, h=h))
-            zp, logdet = self.transform.fwd(zp, params)
+        params = self.transform.calc_params(self.calc_params(z, h=h))
+        zp, logdet = self.transform.fwd(zp, params)
 
-            z1, z2 = (z, zp) if self.up else (zp, z)
-            return self.unsplit(z1, z2), logdet
-        else:
-            if self.analytic_bwd:
-                return self.backward_analytic(input, h=h)
-            else:
-                return self.backward_iterative(input, h=h)
+        z1, z2 = (z, zp) if self.up else (zp, z)
+        return self.unsplit(z1, z2), logdet
 
 
 
@@ -461,7 +451,7 @@ class NICE2d(nn.Module):
         params = self.transform.calc_params(self.calc_params(z, h=h))
         zp_org = zp
         eps = 1e-6
-        for iter in range(maxIter):
+        for _ in range(maxIter):
             new_zp, logdet = self.transform.bwd(zp, params)
             new_zp = zp_org - new_zp
             diff = torch.abs(new_zp - zp).max().item()
@@ -517,8 +507,7 @@ class ActNorm2dFlow(nn.Module):
             # [channels, 1, 1]
             log_scale = self.log_scale
             bias = self.bias
-            out = (input - bias).div(log_scale.exp() + 1e-8)
-            return out
+            return (input - bias).div(log_scale.exp() + 1e-8)
 
 
 
@@ -628,18 +617,21 @@ class InvertibleConvLU1d(nn.Module):
         self.b = x.size(0)
         self.h = x.size(2)
         self.w = x.size(3)
+        wl = self.l * self.lmask + self.eye
         if not reverse:
-            wl = self.l * self.lmask + self.eye
             wu = self.u * self.umask + torch.diag(self.sign_s * torch.exp(self.log_s))
             weight = torch.matmul(self.permutated, torch.matmul(wl, wu)).view(self.nf, self.nf, 1, 1)
 
             logdet = torch.sum(self.log_s) * self.h * self.w * torch.ones(self.b,
                                                                           device=self.log_s.get_device() if self.log_s.get_device() >=0 else "cpu")
-            assert not torch.sum(torch.isnan(logdet)), "Nan occured in InvConv logdet {} {}".format(logdet, self.log_s)
-            assert not torch.sum(torch.isinf(logdet)), "Inf occured in InvConv logdet {} {}".format(logdet, self.log_s)
+            assert not torch.sum(
+                torch.isnan(logdet)
+            ), f"Nan occured in InvConv logdet {logdet} {self.log_s}"
+            assert not torch.sum(
+                torch.isinf(logdet)
+            ), f"Inf occured in InvConv logdet {logdet} {self.log_s}"
             return F.conv2d(x, weight), logdet
         else:
-            wl = self.l * self.lmask + self.eye
             wu = self.u * self.umask + torch.diag(self.sign_s * torch.exp(self.log_s))
             weight = torch.matmul(torch.inverse(wu), torch.matmul(torch.inverse(wl),
                                                                   torch.inverse(self.permutated))).view(self.nf,
@@ -714,11 +706,7 @@ class MultiscaleStack(nn.Module):
         else:
             for i,flow in enumerate(reversed(self.blocks)):
 
-                if i < self.reshape_step:
-                    xc_in = self.h_transforms[-1-i](xc)
-                else:
-                    xc_in = xc
-
+                xc_in = self.h_transforms[-1-i](xc) if i < self.reshape_step else xc
                 if i == self.reshape_step:
                     x, _ = self.reshape_transform(x,reverse=True)
 
@@ -769,11 +757,11 @@ class MultiscaleMixCDF(nn.Module):
 
 
     def forward(self, input: torch.Tensor, h=None, reverse=False):
+        out = input
+        outputs = []
         if not reverse:
-            out = input
             # [batch]
             logdet_accum = input.new_zeros(input.size(0))
-            outputs = []
             for norm, layer, prior, shuffle in zip(self.norms,self.layers, self.priors, self.shuffle_layers):
                 # out, logdet = self.nonlinear(out)
                 # logdet_accum = logdet_accum + logdet
@@ -796,8 +784,6 @@ class MultiscaleMixCDF(nn.Module):
             out = unsplit2d(outputs)
             return out, logdet_accum
         else:
-            out = input
-            outputs = []
             for prior in self.priors:
                 out1, out2 = split2d(out, prior.z1_channels)
                 outputs.append(out2)
@@ -814,7 +800,7 @@ class MultiscaleMixCDF(nn.Module):
                     out = norm_step(out,reverse=True)
                 #out = self.nonlinear(out,reverse=True)
 
-            assert len(outputs) == 0
+            assert not outputs
             return out
 
 
@@ -829,7 +815,7 @@ class MultiScaleInternal(nn.Module):
                  attention=False,heads=4,spatial_size=8,cond_conv=False,cond_conv_hidden_channels=None, p_dropout=0.):
         super().__init__()
         self.reshape = 'none'
-        assert self.reshape in ['none','up','down']
+        assert self.reshape in {'none', 'up', 'down'}
         num_layers = len(num_steps)
         assert num_layers < factor
         self.layers = nn.ModuleList()
@@ -871,12 +857,12 @@ class MultiScaleInternal(nn.Module):
 
 
     def forward(self, input: torch.Tensor, h=None, reverse=False):
+        out = input
+        outputs = []
         if not reverse:
-            out = input
             h_in = h
             # [batch]
             logdet_accum = input.new_zeros(input.size(0))
-            outputs = []
             for i ,(layer, prior, shuffle) in enumerate(zip(self.layers, self.priors, self.shuffle_layers)):
                 # out, logdet = self.nonlinear(out)
                 # logdet_accum = logdet_accum + logdet
@@ -899,8 +885,6 @@ class MultiScaleInternal(nn.Module):
             out = unsplit2d(outputs)
             return out, logdet_accum
         else:
-            out = input
-            outputs = []
             for prior in self.priors:
                 out1, out2 = split2d(out, prior.z1_channels)
                 outputs.append(out2)
@@ -916,7 +900,7 @@ class MultiScaleInternal(nn.Module):
                     out = step(out, h=h,reverse=True)
                 #out = self.nonlinear(out,reverse=True)
 
-            assert len(outputs) == 0
+            assert not outputs
             return out
 
 
@@ -1008,11 +992,11 @@ class MaCowStep(nn.Module):
         num_units = 2
         condition_nice = kwargs['condition_nice']
         attention = 'attention' in kwargs and kwargs['attention']
-        heads = kwargs['heads'] if 'heads' in kwargs else 4
-        ssize = kwargs['spatial_size'] if 'spatial_size' in kwargs else 8
-        cond_conv = kwargs['cond_conv'] if 'cond_conv' in kwargs else False
-        cond_conv_hidden_channels = kwargs['cond_conv_hidden_channels'] if 'cond_conv_hidden_channels' in kwargs else None
-        p_dropout=kwargs['p_dropout'] if 'p_dropout' in kwargs else 0.
+        heads = kwargs.get('heads', 4)
+        ssize = kwargs.get('spatial_size', 8)
+        cond_conv = kwargs.get('cond_conv', False)
+        cond_conv_hidden_channels = kwargs.get('cond_conv_hidden_channels', None)
+        p_dropout = kwargs.get('p_dropout', 0.)
         self.actnorm1 = ActNorm2dFlow(in_channels)
         self.conv1x1 = Shuffle(in_channels)
         units = [MaCowUnit(in_channels, kernel_size, h_channels=h_channels, transform=transform,
@@ -1137,8 +1121,8 @@ class HierarchicalConvCouplingBlock(nn.Module):
 
 
     def forward(self,x,xc=None,reverse=False):
+        h = x
         if not reverse:
-            h = x
             logdet = 0.0
             h, ld = self.norm_layer(h)
             logdet += ld
@@ -1149,7 +1133,6 @@ class HierarchicalConvCouplingBlock(nn.Module):
             logdet += ld
             return h, logdet
         else:
-            h = x
             h = self.shuffle(h, reverse=True)
             for b in reversed(self.coupling):
                 h = b(h, xc, reverse=True)
@@ -1221,11 +1204,11 @@ class HierarchicalConvCouplingFlow(nn.Module):
         assert len(self.shuffle_layers) == len(self.layers)
 
     def forward(self, input: torch.Tensor, h=None, reverse=False):
+        out = input
+        outputs = []
         if not reverse:
-            out = input
             # [batch]
             logdet_accum = input.new_zeros(input.size(0))
-            outputs = []
             for layer, prior, shuffle in zip(self.layers, self.priors, self.shuffle_layers):
                 # out, logdet = self.nonlinear(out)
                 # logdet_accum = logdet_accum + logdet
@@ -1246,8 +1229,6 @@ class HierarchicalConvCouplingFlow(nn.Module):
             out = unsplit2d(outputs)
             return out, logdet_accum
         else:
-            out = input
-            outputs = []
             for prior in self.priors:
                 out1, out2 = split2d(out, prior.z1_channels)
                 outputs.append(out2)
@@ -1264,5 +1245,5 @@ class HierarchicalConvCouplingFlow(nn.Module):
                     out = step(out, xc=h, reverse=True)
                 # out = self.nonlinear(out,reverse=True)
 
-            assert len(outputs) == 0
+            assert not outputs
             return out

@@ -11,9 +11,12 @@ def create_dir_structure(config, model_name):
     subdirs = ["ckpt", "config", "generated", "log"]
 
 
-    # model_name = config['model_name'] if model_name is None else model_name
-    structure = {subdir: path.join(config["base_dir"],config["experiment"],subdir,model_name) for subdir in subdirs}
-    return structure
+    return {
+        subdir: path.join(
+            config["base_dir"], config["experiment"], subdir, model_name
+        )
+        for subdir in subdirs
+    }
 
 def load_parameters(config_name, restart, model_name):
     with open(config_name,"r") as f:
@@ -23,12 +26,11 @@ def load_parameters(config_name, restart, model_name):
     dir_structure = create_dir_structure(cdict_old["general"], model_name)
     saved_config = path.join(dir_structure["config"], "config.yaml")
     if restart:
-        if path.isfile(saved_config):
-            with open(saved_config,"r") as f:
-                cdict = yaml.load(f, Loader=yaml.FullLoader)
-        else:
+        if not path.isfile(saved_config):
             raise FileNotFoundError("No saved config file found but model is intended to be restarted. Aborting....")
 
+        with open(saved_config,"r") as f:
+            cdict = yaml.load(f, Loader=yaml.FullLoader)
         [makedirs(dir_structure[d]) for d in dir_structure if not path.isdir(dir_structure[d])]
 
         cdict['testing'] = cdict_old['testing']
@@ -37,22 +39,25 @@ def load_parameters(config_name, restart, model_name):
     else:
         [makedirs(dir_structure[d],exist_ok=True) for d in dir_structure]
         if path.isfile(saved_config) and not cdict_old["general"]["debug"]:
-            print(f"\033[93m" + "WARNING: Model has been started somewhen earlier: Resume training (y/n)?" + "\033[0m")
+            print(
+                f"\033[93mWARNING: Model has been started somewhen earlier: Resume training (y/n)?"
+                + "\033[0m"
+            )
             while True:
                 answer = input()
-                if answer == "y" or answer == "yes":
+                if answer in ["y", "yes"]:
                     with open(saved_config,"r") as f:
                         cdict = yaml.load(f, Loader=yaml.FullLoader)
                     cdict['testing'] = cdict_old['testing']
                     restart = True
                     break
-                elif answer == "n" or answer == "no":
+                elif answer in ["n", "no"]:
                     with open(saved_config, "w") as f:
                         yaml.dump(cdict_old, f, default_flow_style=False)
                     cdict = cdict_old
                     break
                 else:
-                    print(f"\033[93m" + "Invalid answer! Try again!(y/n)" + "\033[0m")
+                    print(f"\033[93mInvalid answer! Try again!(y/n)" + "\033[0m")
         else:
             with open(saved_config, "w") as f:
                 yaml.dump(cdict_old,f,default_flow_style=False)

@@ -51,9 +51,7 @@ class ConvGRUCell(nn.Module):
         update = torch.sigmoid(self.update_gate(stacked_inputs))
         reset = torch.sigmoid(self.reset_gate(stacked_inputs))
         out_inputs = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
-        new_state = prev_state * (1 - update) + out_inputs * update
-
-        return new_state
+        return prev_state * (1 - update) + out_inputs * update
 
 
 class ConvGRU(nn.Module):
@@ -92,11 +90,7 @@ class ConvGRU(nn.Module):
 
         self.cells = []
         for i in range(self.n_layers):
-            if i == 0:
-                input_dim = self.input_size
-            else:
-                input_dim = self.hidden_sizes[i - 1]
-
+            input_dim = self.input_size if i == 0 else self.hidden_sizes[i - 1]
             self.cells.append(ConvGRUCell(input_dim, self.hidden_sizes[i], self.kernel_sizes[i],upsample=upsampling[i]))
 
         self.cells = nn.Sequential(*self.cells)

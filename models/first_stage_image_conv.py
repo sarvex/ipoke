@@ -111,8 +111,12 @@ class ConvAEModel(pl.LightningModule):
         opt.step()
 
         loss_disc = ((loss_real + loss_fake) / 2.).item()
-        out_dict = {f"train/d_loss": loss_disc, f"train/p_true": torch.sigmoid(pred_true).mean().item(), f"train/p_fake": torch.sigmoid(pred_fake).mean().item(),
-                    f"train/gp_loss": loss_gp.item() if self.disc.gp_weight > 0 else 0}
+        out_dict = {
+            "train/d_loss": loss_disc,
+            "train/p_true": torch.sigmoid(pred_true).mean().item(),
+            "train/p_fake": torch.sigmoid(pred_fake).mean().item(),
+            "train/gp_loss": loss_gp.item() if self.disc.gp_weight > 0 else 0,
+        }
 
         # train generator
         pred_fake= self.disc(x_in_fake)
@@ -140,11 +144,7 @@ class ConvAEModel(pl.LightningModule):
         p_loss = self.vgg_loss(x.contiguous(), rec.contiguous())
         # equal weighting of l1 and perceptual loss
         rec_loss = rec_loss +  self.perc_weight * p_loss
-        if self.be_deterministic:
-            kl_loss = 0.
-        else:
-            kl_loss = kl_conv(mu,log_sigma)
-
+        kl_loss = 0. if self.be_deterministic else kl_conv(mu,log_sigma)
         nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar
         nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
 
@@ -157,7 +157,7 @@ class ConvAEModel(pl.LightningModule):
 
         d_weight = calculate_adaptive_weight(nll_loss, g_loss, self.disc_weight,
                                              last_layer=list(self.decoder.parameters())[-1])\
-            if self.current_epoch >= self.disc_start else 0
+                if self.current_epoch >= self.disc_start else 0
 
         disc_factor = adopt_weight(self.disc_factor, self.current_epoch, threshold=self.disc_start)
         loss = nll_loss + self.kl_weight * kl_loss + d_weight * disc_factor * g_loss
@@ -170,7 +170,7 @@ class ConvAEModel(pl.LightningModule):
         mean_rec_loss = rec_loss.mean()
         loss_dict = {"train/loss": loss, "train/kl_loss": kl_loss, "train/logvar": self.logvar.detach(), "train/nll_loss":nll_loss,
                       "train/rec_loss": mean_rec_loss,"train/d_weight":d_weight, "train/disc_factor": disc_factor,"train/g_loss": g_loss,}
-        loss_dict.update(d_dict)
+        loss_dict |= d_dict
 
         self.log_dict(loss_dict,logger=True,on_epoch=True,on_step=True)
         #self.logger.experiment.log({k: loss_dict[k].item() if isinstance(loss_dict[k],torch.Tensor) else loss_dict[k] for k in loss_dict})
@@ -195,16 +195,23 @@ class ConvAEModel(pl.LightningModule):
 
         # for convenience, in case ditributed training is used
         loss_dict = outputs[0]
-        x  =loss_dict["img_real-train"]
-        rec = loss_dict["img_fake-train"]
         #
 
         if self.global_step % self.config["logging"]["log_train_prog_at"] == 0:
+            x  =loss_dict["img_real-train"]
+            rec = loss_dict["img_fake-train"]
             imgs = [x, rec]
             captions = ["Targets", "Predictions"]
             train_grid = batches2image_grid(imgs, captions)
-            self.logger.experiment.log({f"Train Batch": wandb.Image(train_grid,
-                                                                    caption=f"Training Images @ it #{self.global_step}")},step=self.global_step)
+            self.logger.experiment.log(
+                {
+                    "Train Batch": wandb.Image(
+                        train_grid,
+                        caption=f"Training Images @ it #{self.global_step}",
+                    )
+                },
+                step=self.global_step,
+            )
 
     def training_epoch_end(self, outputs):
         self.log("epoch",self.current_epoch)
@@ -234,7 +241,7 @@ class ConvAEModel(pl.LightningModule):
 
             self.log_dict(log_dict, logger=True, prog_bar=False,on_epoch=True)
 
-            log_dict.update({"img_real-val": x, "img_fake-val": rec})
+            log_dict |= {"img_real-val": x, "img_fake-val": rec}
 
             if batch_id < self.n_it_fid:
                 self.fid_features_real.append(self.inception_model(x).cpu().numpy())

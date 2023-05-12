@@ -40,14 +40,14 @@ class AdaBelief(Optimizer):
 
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
                  weight_decay=0, amsgrad=False, weight_decouple=False, fixed_decay=False, rectify=False):
-        if not 0.0 <= lr:
-            raise ValueError("Invalid learning rate: {}".format(lr))
-        if not 0.0 <= eps:
-            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if lr < 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if eps < 0.0:
+            raise ValueError(f"Invalid epsilon value: {eps}")
         if not 0.0 <= betas[0] < 1.0:
-            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+            raise ValueError(f"Invalid beta parameter at index 0: {betas[0]}")
         if not 0.0 <= betas[1] < 1.0:
-            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+            raise ValueError(f"Invalid beta parameter at index 1: {betas[1]}")
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay, amsgrad=amsgrad)
         super(AdaBelief, self).__init__(params, defaults)
@@ -98,10 +98,7 @@ class AdaBelief(Optimizer):
             closure (callable, optional): A closure that reevaluates the model
                 and returns the loss.
         """
-        loss = None
-        if closure is not None:
-            loss = closure()
-
+        loss = closure() if closure is not None else None
         for group in self.param_groups:
             for p in group['params']:
                 if p.grad is None:
@@ -143,13 +140,12 @@ class AdaBelief(Optimizer):
 
                 # perform weight decay, check if decoupled weight decay
                 if self.weight_decouple:
-                    if not self.fixed_decay:
-                        p.data.mul_(1.0 - group['lr'] * group['weight_decay'])
-                    else:
+                    if self.fixed_decay:
                         p.data.mul_(1.0 - group['weight_decay'])
-                else:
-                    if group['weight_decay'] != 0:
-                        grad.add_(group['weight_decay'], p.data)
+                    else:
+                        p.data.mul_(1.0 - group['lr'] * group['weight_decay'])
+                elif group['weight_decay'] != 0:
+                    grad.add_(group['weight_decay'], p.data)
 
                 # Update first and second moment running average
                 exp_avg.mul_(beta1).add_(1 - beta1, grad)
@@ -207,20 +203,14 @@ class _BatchInstanceNorm(_BatchNorm):
         self._check_input_dim(input)
 
         # Batch norm
-        if self.affine:
-            bn_w = self.weight * self.gate
-        else:
-            bn_w = self.gate
+        bn_w = self.weight * self.gate if self.affine else self.gate
         out_bn = F.batch_norm(
             input, self.running_mean, self.running_var, bn_w, self.bias,
             self.training, self.momentum, self.eps)
 
         # Instance norm
         b, c = input.size(0), input.size(1)
-        if self.affine:
-            in_w = self.weight * (1 - self.gate)
-        else:
-            in_w = 1 - self.gate
+        in_w = self.weight * (1 - self.gate) if self.affine else 1 - self.gate
         input = input.view(1, b * c, *input.size()[2:])
         out_in = F.batch_norm(
             input, None, None, None, None,
@@ -233,20 +223,20 @@ class _BatchInstanceNorm(_BatchNorm):
 
 class BatchInstanceNorm1d(_BatchInstanceNorm):
     def _check_input_dim(self, input):
-        if input.dim() != 2 and input.dim() != 3:
-            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        if input.dim() not in [2, 3]:
+            raise ValueError(f'expected 2D or 3D input (got {input.dim()}D input)')
 
 
 class BatchInstanceNorm2d(_BatchInstanceNorm):
     def _check_input_dim(self, input):
         if input.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+            raise ValueError(f'expected 4D input (got {input.dim()}D input)')
 
 
 class BatchInstanceNorm3d(_BatchInstanceNorm):
     def _check_input_dim(self, input):
         if input.dim() != 5:
-            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+            raise ValueError(f'expected 5D input (got {input.dim()}D input)')
 
 
 # append normalization layer
@@ -302,7 +292,7 @@ class ConvBlock2d(nn.Module):
         if transpose and not shuffle:
             self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=k, stride=s, padding=p, bias=bias,
                                            output_padding=output_padding)
-        elif transpose and shuffle:
+        elif transpose:
             self.conv = nn.Conv2d(in_channels, out_channels * 4, kernel_size=k, stride=s, padding=p, bias=bias)
         else:
             self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=s, padding=p, bias=bias)
@@ -413,7 +403,7 @@ class Encoder(nn.Module):
         encoder = [nn.ReflectionPad2d(1), ConvBlock2d(in_channels, ngf, k=3, s=1, p=0, norm=norm),
                    ConvBlock2d(ngf, ngf, k=3, s=1, p=1, norm=norm)]
         channels = []
-        for i in range(2):
+        for _ in range(2):
             in_channels = ngf
             ngf = min(ngf * 2, max_filters)
             encoder += [ConvBlock2d(in_channels, ngf, k=4, s=2, p=1, norm=norm)]
@@ -430,26 +420,23 @@ class Encoder(nn.Module):
     def forward(self, x):
         x = self.encoder(x)
 
-        if self.variational:
-            mu = self.mu(x)
-            logvar = self.logvar(x)
-            eps = torch.randn_like(logvar)
-            z = mu + torch.exp(logvar * 0.5) * eps
-            return mu, logvar, z
-        else:
+        if not self.variational:
             return x
+        mu = self.mu(x)
+        logvar = self.logvar(x)
+        eps = torch.randn_like(logvar)
+        z = mu + torch.exp(logvar * 0.5) * eps
+        return mu, logvar, z
 
     def inference(self, x):
         x = self.encoder(x)
 
-        if self.variational:
-            mu = self.mu(x)
-            logvar = self.logvar(x)
-            eps = torch.randn_like(logvar)
-            z = mu + torch.exp(logvar * 0.5) * eps
-            return z
-        else:
+        if not self.variational:
             return x
+        mu = self.mu(x)
+        logvar = self.logvar(x)
+        eps = torch.randn_like(logvar)
+        return mu + torch.exp(logvar * 0.5) * eps
 
     def set_grad(self, requires):
         for param in self.parameters():
@@ -463,7 +450,7 @@ class Decoder(nn.Module):
         self.dual = dual
 
         channels = []
-        for i in range(2):
+        for _ in range(2):
             in_channels = ngf
             ngf = min(ngf * 2, max_filters)
             channels.append(in_channels)
@@ -489,17 +476,11 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         x = self.decoder(x)
-        if self.dual:
-            return self.head1(x), self.head2(x)
-        else:
-            return x
+        return (self.head1(x), self.head2(x)) if self.dual else x
 
     def inference(self, x):
         x = self.decoder(x)
-        if self.dual:
-            return self.head1(x), torch.sigmoid(self.head2(x))
-        else:
-            return x
+        return (self.head1(x), torch.sigmoid(self.head2(x))) if self.dual else x
 
     def set_grad(self, requires):
         for param in self.parameters():
@@ -513,7 +494,7 @@ class Discriminator(nn.Module):  # receptive field=23
         encoder = [nn.ReflectionPad2d(1), ConvBlock2d(in_channels, ngf, k=3, s=1, p=0, norm=norm),
                    ConvBlock2d(ngf, ngf, k=3, s=1, p=1, norm=norm)]
         channels = []
-        for i in range(2):
+        for _ in range(2):
             in_channels = ngf
             ngf = min(ngf * 2, max_filters)
             encoder += [ConvBlock2d(in_channels, ngf, k=4, s=2, p=1, norm=norm)]
@@ -546,7 +527,7 @@ class MI_Discriminator1(nn.Module):  # receptive field=23
         encoder = [ConvBlock2d(in_channels, ngf, k=5, s=1, p=2, norm=norm),
                    ConvBlock2d(ngf, ngf, k=3, s=1, p=1, norm=norm)]
         channels = []
-        for i in range(2):
+        for _ in range(2):
             in_channels = ngf
             ngf = min(ngf * 2, max_filters)
             encoder += [ConvBlock2d(in_channels, ngf, k=3, s=2, p=1, norm=norm)]
@@ -632,7 +613,7 @@ class InvertibleActivationLayer(nn.Module):
         elif type == "none":
             self.act = InvertibleDummyLayer()
         else:
-            print("Activation function {} does not exist!".format(type))
+            print(f"Activation function {type} does not exist!")
             self.act = InvertibleDummyLayer()
 
     def logdet(self):
@@ -660,8 +641,8 @@ class ActNorm2d(nn.Module):
             mean = x.mean(dim=1).view(1, x.size(0), 1, 1)
             std = x.std(dim=1, unbiased=False).view(1, x.size(0), 1, 1)
 
-            assert not torch.sum(torch.isnan(std)), "Nan occured in Actnorm! {} {}".format(std, mean)
-            assert not torch.sum(torch.isinf(std)), "Inf occured in Actnorm! {} {}".format(std, mean)
+            assert not torch.sum(torch.isnan(std)), f"Nan occured in Actnorm! {std} {mean}"
+            assert not torch.sum(torch.isinf(std)), f"Inf occured in Actnorm! {std} {mean}"
 
             self.scale.data.copy_((1.0 / std + 1e-6).data)
             self.bias.data.copy_(mean.data)
@@ -670,10 +651,12 @@ class ActNorm2d(nn.Module):
     def logdet(self):
         val = torch.sum(torch.log(torch.abs(self.scale)), dim=1) * torch.ones(self.b, self.h, self.w).to(
             self.scale.device)
-        assert not torch.sum(torch.isnan(val)), "Nan occured in Actnorm logdet! {}".format(
-            torch.sum(torch.log(torch.abs(self.scale) + 1e-6)))
-        assert not torch.sum(torch.isinf(val)), "Inf occured in Actnorm logdet! {}".format(
-            torch.sum(torch.log(torch.abs(self.scale) + 1e-6)))
+        assert not torch.sum(
+            torch.isnan(val)
+        ), f"Nan occured in Actnorm logdet! {torch.sum(torch.log(torch.abs(self.scale) + 1e-06))}"
+        assert not torch.sum(
+            torch.isinf(val)
+        ), f"Inf occured in Actnorm logdet! {torch.sum(torch.log(torch.abs(self.scale) + 1e-06))}"
         return val
 
     def forward(self, x):
@@ -696,12 +679,7 @@ class InvertibleNormLayer2d(nn.Module):
     def __init__(self, nf, type="act"):
         super(InvertibleNormLayer2d, self).__init__()
 
-        if type == "act":
-            self.norm = ActNorm2d(nf)
-        elif type == "none":
-            self.norm = InvertibleDummyLayer()
-        else:
-            self.norm = InvertibleDummyLayer()
+        self.norm = ActNorm2d(nf) if type == "act" else InvertibleDummyLayer()
 
     def logdet(self):
         return self.norm.logdet()
@@ -746,8 +724,8 @@ class AffineCouplingLayer2d(nn.Module):
 
     def logdet(self):
         val = torch.sum(self.vals1, dim=1) + torch.sum(self.vals2, dim=1)
-        assert not torch.sum(torch.isnan(val)), "Nan occured in Coupling logdet {}".format(val)
-        assert not torch.sum(torch.isinf(val)), "Inf occured in Coupling logdet {}".format(val)
+        assert not torch.sum(torch.isnan(val)), f"Nan occured in Coupling logdet {val}"
+        assert not torch.sum(torch.isinf(val)), f"Inf occured in Coupling logdet {val}"
         return val  # .unsqueeze(1)
 
     def forward(self, x):
@@ -760,9 +738,7 @@ class AffineCouplingLayer2d(nn.Module):
         self.vals2 = self.s2(v1)
         v2 = x2 * self.vals2.exp() + self.t2(v1)
 
-        v = torch.cat([v1, v2], dim=1)
-
-        return v
+        return torch.cat([v1, v2], dim=1)
 
     def reverse(self, x):
         # first of all split data
@@ -772,9 +748,7 @@ class AffineCouplingLayer2d(nn.Module):
         v2 = (x2 - self.t2(x1)) * self.s2(x1).neg().exp()
         v1 = (x1 - self.t1(v2)) * self.s1(v2).neg().exp()
 
-        v = torch.cat([v1, v2], dim=1)
-
-        return v
+        return torch.cat([v1, v2], dim=1)
 
 
 class ConditionalAffineCouplingLayer2d(nn.Module):
@@ -799,8 +773,8 @@ class ConditionalAffineCouplingLayer2d(nn.Module):
 
     def logdet(self):
         val = torch.sum(self.vals1, dim=1) + torch.sum(self.vals2, dim=1)
-        assert not torch.sum(torch.isnan(val)), "Nan occured in Coupling logdet {}".format(val)
-        assert not torch.sum(torch.isinf(val)), "Inf occured in Coupling logdet {}".format(val)
+        assert not torch.sum(torch.isnan(val)), f"Nan occured in Coupling logdet {val}"
+        assert not torch.sum(torch.isinf(val)), f"Inf occured in Coupling logdet {val}"
         return val  # .unsqueeze(1)
 
     def forward(self, x, c):
@@ -813,9 +787,7 @@ class ConditionalAffineCouplingLayer2d(nn.Module):
         self.vals2 = self.s2(torch.cat([v1, c], dim=1))
         v2 = x2 * self.vals2.exp() + self.t2(torch.cat([v1, c], dim=1))
 
-        v = torch.cat([v1, v2], dim=1)
-
-        return v
+        return torch.cat([v1, v2], dim=1)
 
     def reverse(self, x, c):
         # first of all split data
@@ -825,9 +797,7 @@ class ConditionalAffineCouplingLayer2d(nn.Module):
         v2 = (x2 - self.t2(torch.cat([x1, c], dim=1))) * self.s2(torch.cat([x1, c], dim=1)).neg().exp()
         v1 = (x1 - self.t1(torch.cat([v2, c], dim=1))) * self.s1(torch.cat([v2, c], dim=1)).neg().exp()
 
-        v = torch.cat([v1, v2], dim=1)
-
-        return v
+        return torch.cat([v1, v2], dim=1)
 
 
 # copied from https://github.com/CompVis/net2net/blob/master/net2net/modules/flow/blocks.py
@@ -894,8 +864,12 @@ class InvertibleConvLU1d(nn.Module):
 
     def logdet(self):
         val = torch.sum(self.log_s) * torch.ones(self.b, self.h, self.w).to(self.log_s.device)
-        assert not torch.sum(torch.isnan(val)), "Nan occured in InvConv logdet {} {}".format(val, self.log_s)
-        assert not torch.sum(torch.isinf(val)), "Inf occured in InvConv logdet {} {}".format(val, self.log_s)
+        assert not torch.sum(
+            torch.isnan(val)
+        ), f"Nan occured in InvConv logdet {val} {self.log_s}"
+        assert not torch.sum(
+            torch.isinf(val)
+        ), f"Inf occured in InvConv logdet {val} {self.log_s}"
         # val = val.view(1,1,1,1)
         return val
 
@@ -937,26 +911,19 @@ class InvertibleBlock(nn.Module):
             val += self.conv.logdet()
         # print("test after {}".format(val.size()))
         # print(self.norm.logdet(), self.cacl.logdet(), self.conv.logdet())
-        assert not torch.sum(torch.isnan(val)), "Nan occured in Block logdet {}".format(val)
-        assert not torch.sum(torch.isinf(val)), "Inf occured in Block logdet {}".format(val)
+        assert not torch.sum(torch.isnan(val)), f"Nan occured in Block logdet {val}"
+        assert not torch.sum(torch.isinf(val)), f"Inf occured in Block logdet {val}"
         return val
 
     def forward(self, x):
         x = self.norm(x)
         x = self.act(x)
         x = self.cacl(x)
-        if self.use_conv:
-            x = self.conv(x)
-        else:
-            x = self.shuffle(x)
-
+        x = self.conv(x) if self.use_conv else self.shuffle(x)
         return x
 
     def reverse(self, x):
-        if self.use_conv:
-            x = self.conv.reverse(x)
-        else:
-            x = self.shuffle.reverse(x)
+        x = self.conv.reverse(x) if self.use_conv else self.shuffle.reverse(x)
         x = self.cacl.reverse(x)
         x = self.act.reverse(x)
         x = self.norm.reverse(x)
@@ -983,26 +950,19 @@ class ConditionalInvertibleBlock(nn.Module):
             val += self.conv.logdet()
         # print("test after {}".format(val.size()))
         # print(self.norm.logdet(), self.cacl.logdet(), self.conv.logdet())
-        assert not torch.sum(torch.isnan(val)), "Nan occured in Block logdet {}".format(val)
-        assert not torch.sum(torch.isinf(val)), "Inf occured in Block logdet {}".format(val)
+        assert not torch.sum(torch.isnan(val)), f"Nan occured in Block logdet {val}"
+        assert not torch.sum(torch.isinf(val)), f"Inf occured in Block logdet {val}"
         return val
 
     def forward(self, x, c):
         x = self.norm(x)
         x = self.act(x)
         x = self.cacl(x, c)
-        if self.use_conv:
-            x = self.conv(x)
-        else:
-            x = self.shuffle(x)
-
+        x = self.conv(x) if self.use_conv else self.shuffle(x)
         return x
 
     def reverse(self, x, c):
-        if self.use_conv:
-            x = self.conv.reverse(x)
-        else:
-            x = self.shuffle.reverse(x)
+        x = self.conv.reverse(x) if self.use_conv else self.shuffle.reverse(x)
         x = self.cacl.reverse(x, c)
         x = self.act.reverse(x)
         x = self.norm.reverse(x)
@@ -1016,7 +976,7 @@ class InvertibleNet(nn.Module):
 
         self.depth = depth
         self.blocks = nn.ModuleList()
-        for i in range(depth):
+        for _ in range(depth):
             self.blocks.append(InvertibleBlock(nf, nf_hidden, norm, act, use_conv=use_conv, k=k, p=p))
 
     def logdet(self):
@@ -1055,7 +1015,7 @@ class ConditionalInvertibleNet(nn.Module):
 
         self.depth = depth
         self.blocks = nn.ModuleList()
-        for i in range(depth):
+        for _ in range(depth):
             self.blocks.append(ConditionalInvertibleBlock(nf, nf_c, nf_hidden, norm, act,
                                                           use_conv=use_conv, k=3, p=1))
 

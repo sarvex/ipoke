@@ -35,8 +35,7 @@ class VGG(torch.nn.Module):
         h_relu3 = self.slice3(h_relu2)
         h_relu4 = self.slice4(h_relu3)
         h_relu5 = self.slice5(h_relu4)
-        out = [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
-        return out
+        return [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
 
     def normalize(self, x):
         x = x.permute(1, 0, 2, 3)
@@ -75,9 +74,9 @@ class VGGLoss(nn.Module):
     def forward(self, x, y):
         fmap1, fmap2 = self.vgg(x), self.vgg(y)
         if self.weighted:
-            recp_loss = 0
-            for idx in range(len(fmap1)):
-                recp_loss += self.weights[idx] * self.criterion(fmap2[idx], fmap1[idx])
-            return recp_loss
+            return sum(
+                self.weights[idx] * self.criterion(fmap2[idx], fmap1[idx])
+                for idx in range(len(fmap1))
+            )
         else:
             return fmap_loss(fmap1, fmap2, loss='l1')

@@ -49,9 +49,8 @@ class Experiment:
         # wandb logging
         self.current_version = 0
         if path.isdir(path.join(self.dirs["ckpt"])):
-            runs = glob(path.join(self.dirs["ckpt"],"*"))
-            if len(runs) > 0:
-                self.current_version = max([int(r.split("/")[-1]) for r in runs])
+            if runs := glob(path.join(self.dirs["ckpt"], "*")):
+                self.current_version = max(int(r.split("/")[-1]) for r in runs)
                 if self.config["general"]["test"] == 'none':
                     self.current_version+=1
 
@@ -79,7 +78,7 @@ class Experiment:
 
 
         acc_batches = int(math.ceil(self.config["training"]["min_acc_batch_size"] / self.config["data"]["batch_size"])) \
-            if self.config["training"]["min_acc_batch_size"] > self.config["data"]["batch_size"] else 1
+                if self.config["training"]["min_acc_batch_size"] > self.config["data"]["batch_size"] else 1
 
         prof_file = path.join(self.dirs['log'],'profile.log')
         profiler =AdvancedProfiler(output_filename=prof_file) if self.config["general"]["profiler"] else None
@@ -109,17 +108,18 @@ class Experiment:
 
         ckpt_name = glob(path.join(self.ckpt_load_dir, "*.yaml"))
         last_ckpt = path.join(self.ckpt_load_dir, "last.ckpt")
-        if self.config["general"]["last_ckpt"] and path.isfile(last_ckpt):
-            print('Using last ckpt...')
-            ckpt_name = [last_ckpt]
-        elif self.config["general"]["last_ckpt"] and not path.isfile(last_ckpt):
-            raise ValueError("intending to load last ckpt, but no last ckpt found. Aborting....")
+        if self.config["general"]["last_ckpt"]:
+            if path.isfile(last_ckpt):
+                print('Using last ckpt...')
+                ckpt_name = [last_ckpt]
+            elif not path.isfile(last_ckpt):
+                raise ValueError("intending to load last ckpt, but no last ckpt found. Aborting....")
 
         if len(ckpt_name) == 1:
             ckpt_name = ckpt_name[0]
         else:
             msg = "Not enough" if len(ckpt_name) < 1 else "Too many"
-            raise ValueError(msg + f" checkpoint files found! Aborting...")
+            raise ValueError(f"{msg} checkpoint files found! Aborting...")
 
         if ckpt_name.endswith(".yaml"):
             with open(ckpt_name, "r") as f:
@@ -127,13 +127,12 @@ class Experiment:
 
             has_files = len(ckpts) > 0
             while has_files:
-                best_val = min([ckpts[key] for key in ckpts])
+                best_val = min(ckpts[key] for key in ckpts)
                 ckpt_name = {ckpts[key]:key for key in ckpts}[best_val]
                 if path.isfile(ckpt_name):
                     break
-                else:
-                    del ckpts[ckpt_name]
-                    has_files = len(ckpts) > 0
+                del ckpts[ckpt_name]
+                has_files = len(ckpts) > 0
 
             if not has_files:
                 raise ValueError(f'No valid files contained in ckpt-name-holding file "{ckpt_name}"')

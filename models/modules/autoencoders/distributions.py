@@ -34,20 +34,18 @@ class DiagonalGaussianDistribution(object):
             self.var = self.std = torch.zeros_like(self.mean)
 
     def sample(self):
-        x = self.mean + self.std * torch.randn_like(self.mean)
-        return x
+        return self.mean + self.std * torch.randn_like(self.mean)
 
     def kl(self, other=None):
         if self.deterministic:
             return torch.Tensor([0.])
+        if other is None:
+            return torch.mean(0.5 * torch.sum(torch.pow(self.mean, 2) + self.var - 1.0 - self.logvar, dim=[1, 2, 3]))
         else:
-            if other is None:
-                return torch.mean(0.5 * torch.sum(torch.pow(self.mean, 2) + self.var - 1.0 - self.logvar, dim=[1, 2, 3]))
-            else:
-                return 0.5 * torch.sum(
-                    torch.pow(self.mean - other.mean, 2) / other.var
-                    + self.var / other.var - 1.0 - self.logvar + other.logvar,
-                    dim=[1, 2, 3])
+            return 0.5 * torch.sum(
+                torch.pow(self.mean - other.mean, 2) / other.var
+                + self.var / other.var - 1.0 - self.logvar + other.logvar,
+                dim=[1, 2, 3])
 
     def nll(self, sample):
         if self.deterministic:

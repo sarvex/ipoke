@@ -8,27 +8,23 @@ import numpy as np
 def resnet10(**kwargs):
     """Constructs a ResNet-10 model.
     """
-    model = ResNet(BasicBlock, [1, 1, 1, 1], **kwargs)
-    return model
+    return ResNet(BasicBlock, [1, 1, 1, 1], **kwargs)
 
 
 def resnet18(**kwargs):
     """Constructs a ResNet-18 model.
     """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-    return model
+    return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
 def resnet18_alternative(**kwargs):
-    model = ResNetMotionEncoder(BasicBlock, [2, 2, 2, 2], **kwargs)
-    return model
+    return ResNetMotionEncoder(BasicBlock, [2, 2, 2, 2], **kwargs)
 
 
 
 def resnet34(**kwargs):
     """Constructs a ResNet-34 model.
     """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    return model
+    return ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
 
 
 def conv3x3x3(in_planes, out_planes, stride=1):
@@ -119,9 +115,7 @@ class ResNet(nn.Module):
 
         layers = [block(self.inplanes, planes, stride, downsample)]
         self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
+        layers.extend(block(self.inplanes, planes) for _ in range(1, blocks))
         return nn.Sequential(*layers)
 
     def reparameterize(self, emb):
@@ -210,9 +204,7 @@ class ResNetMotionEncoder(nn.Module):
 
         layers = [block(self.inplanes, planes, stride, downsample)]
         self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
+        layers.extend(block(self.inplanes, planes) for _ in range(1, blocks))
         return nn.Sequential(*layers)
 
     def reparameterize(self, emb):
@@ -234,11 +226,10 @@ class ResNetMotionEncoder(nn.Module):
             x = self.layer4(x)
         if self.spatial_size // 2 ** 4 > self.min_ssize:
             x = self.layer5(x)
-        if self.be_determinstic:
-            _, out, _ = self.reparameterize(x.squeeze(2))
-            return out, out , out
-        else:
+        if not self.be_determinstic:
             return self.reparameterize(x.squeeze(2))
+        _, out, _ = self.reparameterize(x.squeeze(2))
+        return out, out , out
 
 
 

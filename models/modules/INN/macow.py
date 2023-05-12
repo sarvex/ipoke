@@ -31,16 +31,15 @@ class Conv1x1Flow(nn.Module):
             out: [batch, in_channels, H, W], the output of the flow
             logdet: [batch], the log determinant of :math:`\partial output / \partial input`
         """
-        if not reverse:
-            batch, channels, H, W = input.size()
-            out = F.conv2d(input, self.weight.view(self.in_channels, self.in_channels, 1, 1))
-            _, logdet = torch.slogdet(self.weight)
-            return out, logdet.mul(H * W)
-        else:
-            #batch, channels, H, W = input.size()
-            out = F.conv2d(input, self.weight_inv.view(self.in_channels, self.in_channels, 1, 1))
-            # _, logdet = torch.slogdet(self.weight_inv)
-            return out
+        if reverse:
+            return F.conv2d(
+                input,
+                self.weight_inv.view(self.in_channels, self.in_channels, 1, 1),
+            )
+        batch, channels, H, W = input.size()
+        out = F.conv2d(input, self.weight.view(self.in_channels, self.in_channels, 1, 1))
+        _, logdet = torch.slogdet(self.weight)
+        return out, logdet.mul(H * W)
 
 
 class MaCowStep(nn.Module):
@@ -207,21 +206,16 @@ class MaskedConvFlow(nn.Module):
             out = out + mu
             return out, logdet
         else:
-            if self.s_conv is not None:
-                ss = self.s_conv(s)
-            else:
-                ss = s
+            ss = self.s_conv(s) if self.s_conv is not None else s
             if self.order == 'A':
-                out = self.backward_height(input, s=ss, reverse=False)
+                return self.backward_height(input, s=ss, reverse=False)
             elif self.order == 'B':
-                out = self.backward_height(input, s=ss, reverse=True)
+                return self.backward_height(input, s=ss, reverse=True)
             elif self.order == 'C':
                 # fixme this changes dimension of inputs which is not intended
-                out = self.backward_width(input, s=ss, reverse=False)
+                return self.backward_width(input, s=ss, reverse=False)
             else:
-                out = self.backward_width(input, s=ss, reverse=True)
-            # _, logdet = self.forward(out, s=s)
-            return out#, logdet.mul(-1.0)
+                return self.backward_width(input, s=ss, reverse=True)
 
     def backward_height(self, input: torch.Tensor, s=None, reverse=False) -> torch.Tensor:
         batch, channels, H, W = input.size()
@@ -425,10 +419,10 @@ class NICE(nn.Module):
             out: [batch, in_channels, H, W], the output of the flow
             logdet: [batch], the log determinant of :math:`\partial output / \partial input`
         """
+        z1 = input[:, :self.z1_channels]
+        z2 = input[:, self.z1_channels:]
         # [batch, in_channels, H, W]
         if not reverse:
-            z1 = input[:, :self.z1_channels]
-            z2 = input[:, self.z1_channels:]
             mu, scale = self.calc_mu_and_scale(z1, s)
             if self.scale:
                 z2 = z2.mul(scale)
@@ -438,8 +432,6 @@ class NICE(nn.Module):
             z2 = z2 + mu
             return torch.cat([z1, z2], dim=1), logdet
         else:
-            z1 = input[:, :self.z1_channels]
-            z2 = input[:, self.z1_channels:]
             mu, scale = self.calc_mu_and_scale(z1, s)
             z2 = z2 - mu
             if self.scale:

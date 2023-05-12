@@ -70,7 +70,9 @@ class UMAP(Callback):
         plt.legend()
         plt.axis('off')
         plt.ioff()
-        pl_module.logger.experiment.log({"Umap plot " + split: wandb.Image(plt, caption="Umap plot")})
+        pl_module.logger.experiment.log(
+            {f"Umap plot {split}": wandb.Image(plt, caption="Umap plot")}
+        )
         plt.close()
         if is_train:
             pl_module.train()

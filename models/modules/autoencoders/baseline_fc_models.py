@@ -88,8 +88,7 @@ class BaselineFCGenerator(nn.Module):
 
         if del_shape:
             assert not actual_frame
-        out = self.out_conv(x)
-        return out
+        return self.out_conv(x)
 
 # class BaseLineFCEncoder(nn.Module):
 

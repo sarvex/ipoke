@@ -30,9 +30,9 @@ class SpectralNorm(nn.Module):
             self._make_params()
 
     def _update_u_v(self):
-        u = getattr(self.module, self.name + "_u")
-        v = getattr(self.module, self.name + "_v")
-        w = getattr(self.module, self.name + "_bar")
+        u = getattr(self.module, f"{self.name}_u")
+        v = getattr(self.module, f"{self.name}_v")
+        w = getattr(self.module, f"{self.name}_bar")
 
         height = w.data.shape[0]
         _w = w.view(height, -1)
@@ -45,9 +45,9 @@ class SpectralNorm(nn.Module):
 
     def _made_params(self):
         try:
-            getattr(self.module, self.name + "_u")
-            getattr(self.module, self.name + "_v")
-            getattr(self.module, self.name + "_bar")
+            getattr(self.module, f"{self.name}_u")
+            getattr(self.module, f"{self.name}_v")
+            getattr(self.module, f"{self.name}_bar")
             return True
         except AttributeError:
             return False
@@ -64,9 +64,9 @@ class SpectralNorm(nn.Module):
         w_bar = Parameter(w.data)
 
         del self.module._parameters[self.name]
-        self.module.register_parameter(self.name + "_u", u)
-        self.module.register_parameter(self.name + "_v", v)
-        self.module.register_parameter(self.name + "_bar", w_bar)
+        self.module.register_parameter(f"{self.name}_u", u)
+        self.module.register_parameter(f"{self.name}_v", v)
+        self.module.register_parameter(f"{self.name}_bar", w_bar)
 
     def forward(self, *args):
         self._update_u_v()
@@ -205,14 +205,13 @@ class GBlock(nn.Module):
             else:
                 self.HyperBN = BatchNorm2dWrap(in_channel, z_dim)
                 self.HyperBN_1 = BatchNorm2dWrap(out_channel, z_dim)
-        else:
-            if use_actnorm:
-                if conditional:
-                    self.HyperBN = ConditionalActNorm2d(in_channel, z_dim)
-                    self.HyperBN_1 = ConditionalActNorm2d(out_channel, z_dim)
-                else:
-                    self.HyperBN = ActNorm2dWrap(in_channel)
-                    self.HyperBN_1 = ActNorm2dWrap(out_channel)
+        elif use_actnorm:
+            if conditional:
+                self.HyperBN = ConditionalActNorm2d(in_channel, z_dim)
+                self.HyperBN_1 = ConditionalActNorm2d(out_channel, z_dim)
+            else:
+                self.HyperBN = ActNorm2dWrap(in_channel)
+                self.HyperBN_1 = ActNorm2dWrap(out_channel)
 
     def forward(self, input, condition=None):
         out = input
@@ -233,16 +232,14 @@ class GBlock(nn.Module):
         if self.downsample:
             out = F.avg_pool2d(out, 2)
 
+        skip = input
         if self.skip_proj:
-            skip = input
             if self.upsample:
                 # different form papers
                 skip = F.interpolate(skip, scale_factor=2)
             skip = self.conv_sc(skip)
             if self.downsample:
                 skip = F.avg_pool2d(skip, 2)
-        else:
-            skip = input
         return out + skip
 
 
@@ -280,10 +277,7 @@ class Generator64(nn.Module):
 
     def forward(self, input, class_id, from_class_embedding=False):
         codes = torch.chunk(input, self.num_split, 1)
-        if from_class_embedding:
-            class_emb = class_id  # 128
-        else:
-            class_emb = self.linear(class_id)  # 128
+        class_emb = class_id if from_class_embedding else self.linear(class_id)
         out = self.G_linear(codes[0])
         out = out.view(-1, 4, 4, self.first_view).permute(0, 3, 1, 2)
         for i, (code, GBlock) in enumerate(zip(codes[1:], self.GBlock)):
@@ -295,10 +289,7 @@ class Generator64(nn.Module):
         out = self.ScaledCrossReplicaBN(out)
         out = F.relu(out)
         out = self.colorize(out)
-        if self.last_actfn:
-            return torch.tanh(out)
-        else:
-            return out
+        return torch.tanh(out) if self.last_actfn else out
 
     @classmethod
     def from_pretrained(cls):
@@ -325,7 +316,7 @@ class VariableDimGenerator64(Generator64):
     def __init__(self, code_dim, *args, **kwargs):
         super().__init__(*args, **kwargs)
         first_split = code_dim - (self.num_split-1)*10
-        self.split_at = [first_split] + [10 for i in range(self.num_split-1)]
+        self.split_at = [first_split] + [10 for _ in range(self.num_split-1)]
 
     def forward(self, input, class_id):
         codes = torch.split(input, self.split_at, 1)
@@ -341,10 +332,7 @@ class VariableDimGenerator64(Generator64):
         out = self.ScaledCrossReplicaBN(out)
         out = F.relu(out)
         out = self.colorize(out)
-        if self.last_actfn:
-            return torch.tanh(out)
-        else:
-            return out
+        return torch.tanh(out) if self.last_actfn else out
 
 
 class Generator128(nn.Module):
@@ -389,11 +377,7 @@ class Generator128(nn.Module):
 
     def forward(self, input, class_id, from_class_embedding=False):
         codes = torch.chunk(input, self.num_split, 1)
-        if from_class_embedding:
-            class_emb = class_id  # 128
-        else:
-            class_emb = self.linear(class_id)  # 128
-
+        class_emb = class_id if from_class_embedding else self.linear(class_id)
         out = self.G_linear(codes[0])
         out = out.view(-1, 4, 4, self.first_view).permute(0, 3, 1, 2)
         for i, (code, GBlock) in enumerate(zip(codes[1:], self.GBlock)):
@@ -405,10 +389,7 @@ class Generator128(nn.Module):
         out = self.ScaledCrossReplicaBN(out)
         out = F.relu(out)
         out = self.colorize(out)
-        if self.last_actfn:
-            return torch.tanh(out)
-        else:
-            return out
+        return torch.tanh(out) if self.last_actfn else out
 
     @classmethod
     def from_pretrained(cls):
@@ -435,7 +416,7 @@ class VariableDimGenerator128(Generator128):
     def __init__(self, code_dim, *args, **kwargs):
         super().__init__(*args, **kwargs)
         first_split = code_dim - (self.num_split-1)*20
-        self.split_at = [first_split] + [20 for i in range(self.num_split-1)]
+        self.split_at = [first_split] + [20 for _ in range(self.num_split-1)]
 
     def forward(self, input, class_id):
         codes = torch.split(input, self.split_at, 1)
@@ -454,10 +435,7 @@ class VariableDimGenerator128(Generator128):
         out = self.ScaledCrossReplicaBN(out)
         out = F.relu(out)
         out = self.colorize(out)
-        if self.last_actfn:
-            return torch.tanh(out)
-        else:
-            return out
+        return torch.tanh(out) if self.last_actfn else out
 
 
 class Generator256(nn.Module):
@@ -500,10 +478,7 @@ class Generator256(nn.Module):
 
     def forward(self, input, class_id, from_class_embedding=False):
         codes = torch.chunk(input, self.num_split, 1)
-        if from_class_embedding:
-            class_emb = class_id  # 128
-        else:
-            class_emb = self.linear(class_id)  # 128
+        class_emb = class_id if from_class_embedding else self.linear(class_id)
         out = self.G_linear(codes[0])
         out = out.view(-1, 4, 4, self.first_view).permute(0, 3, 1, 2)
         for i, (code, GBlock) in enumerate(zip(codes[1:], self.GBlock)):
@@ -515,10 +490,7 @@ class Generator256(nn.Module):
         out = self.ScaledCrossReplicaBN(out)
         out = F.relu(out)
         out = self.colorize(out)
-        if self.last_actfn:
-            return torch.tanh(out)
-        else:
-            return out
+        return torch.tanh(out) if self.last_actfn else out
 
     @classmethod
     def from_pretrained(cls):
@@ -543,7 +515,7 @@ class VariableDimGenerator256(Generator256):
     def __init__(self, code_dim, *args, **kwargs):
         super().__init__(*args, **kwargs)
         first_split = code_dim - (self.num_split-1)*20
-        self.split_at = [first_split] + [20 for i in range(self.num_split-1)]
+        self.split_at = [first_split] + [20 for _ in range(self.num_split-1)]
 
     def forward(self, input, class_id):
         codes = torch.split(input, self.split_at, 1)
@@ -560,10 +532,7 @@ class VariableDimGenerator256(Generator256):
         out = self.ScaledCrossReplicaBN(out)
         out = F.relu(out)
         out = self.colorize(out)
-        if self.last_actfn:
-            return torch.tanh(out)
-        else:
-            return out
+        return torch.tanh(out) if self.last_actfn else out
 
 def update_G_linear(biggan_generator, n_in, n_out=16*16*96):
     biggan_generator.G_linear = SpectralNorm(nn.Linear(n_in, n_out))
@@ -576,7 +545,7 @@ def load_variable_latsize_generator(size, z_dim, n_class=1000, pretrained=True, 
 
     if pretrained:
         assert n_class==1000
-        ckpt = get_ckpt_path("biggan_{}".format(size))
+        ckpt = get_ckpt_path(f"biggan_{size}")
         sd = torch.load(ckpt)
         G.load_state_dict(sd)
     split_sizes = {64: 4*10, 128: 5*20, 256: 6*20}

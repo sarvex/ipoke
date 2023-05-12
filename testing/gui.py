@@ -57,27 +57,27 @@ class Form(QtWidgets.QDialog,LoggingParent):
 
     def numpy_to_qImage(self, np_image):
         np_image2 = np_image.astype(np.uint8)
-        qimage = QtGui.QImage(np_image2,
-                              np_image2.shape[1],
-                              np_image2.shape[0],
-                              QtGui.QImage.Format_RGB888)
-        return qimage
+        return QtGui.QImage(
+            np_image2,
+            np_image2.shape[1],
+            np_image2.shape[0],
+            QtGui.QImage.Format_RGB888,
+        )
 
     def _load_ckpt(self):
         is_target_version = "target_version" in self.config["general"] and path.isdir(
             path.join(self.dirs["ckpt"], str(self.config["general"]["target_version"])))
 
         if not is_target_version:
-            if path.isdir(path.join(self.dirs["ckpt"])):
-                runs = [r for r in glob(path.join(self.dirs["ckpt"], '*')) if path.isdir(r)]
-                print(f'Available runs are {runs}')
-                if len(runs) == 0:
-                    raise FileNotFoundError(f'No valid project file found. Check, if run name "{self.config["general"]["model_name"]}" is a valid run in experiment "{self.config["general"]["experiment"]}"...')
-            else:
+            if not path.isdir(path.join(self.dirs["ckpt"])):
                 raise FileNotFoundError(
                     f'No valid project file found. Check, if run name "{self.config["general"]["model_name"]}" is a valid run in experiment "{self.config["general"]["experiment"]}"...')
 
-            current_version = max([int(r.split("/")[-1]) for r in runs])
+            runs = [r for r in glob(path.join(self.dirs["ckpt"], '*')) if path.isdir(r)]
+            print(f'Available runs are {runs}')
+            if not runs:
+                raise FileNotFoundError(f'No valid project file found. Check, if run name "{self.config["general"]["model_name"]}" is a valid run in experiment "{self.config["general"]["experiment"]}"...')
+            current_version = max(int(r.split("/")[-1]) for r in runs)
         else:
             current_version = self.config['general']['target_version']
 
@@ -85,16 +85,17 @@ class Form(QtWidgets.QDialog,LoggingParent):
 
         ckpt_name = glob(path.join(ckpt_load_dir, "*.yaml"))
         last_ckpt = path.join(ckpt_load_dir, "last.ckpt")
-        if self.config["general"]["last_ckpt"] and path.isfile(last_ckpt):
-            ckpt_name = [last_ckpt]
-        elif self.config["general"]["last_ckpt"] and not path.isfile(last_ckpt):
-            raise ValueError("intending to load last ckpt, but no last ckpt found. Aborting....")
+        if self.config["general"]["last_ckpt"]:
+            if path.isfile(last_ckpt):
+                ckpt_name = [last_ckpt]
+            elif not path.isfile(last_ckpt):
+                raise ValueError("intending to load last ckpt, but no last ckpt found. Aborting....")
 
         if len(ckpt_name) == 1:
             ckpt_name = ckpt_name[0]
         else:
             msg = "Not enough" if len(ckpt_name) < 1 else "Too many"
-            raise ValueError(msg + f" checkpoint files found! Aborting...")
+            raise ValueError(f"{msg} checkpoint files found! Aborting...")
 
         if ckpt_name.endswith(".yaml"):
             with open(ckpt_name, "r") as f:
@@ -102,15 +103,14 @@ class Form(QtWidgets.QDialog,LoggingParent):
 
             has_files = len(ckpts) > 0
             while has_files:
-                best_val = min([ckpts[key] for key in ckpts])
+                best_val = min(ckpts[key] for key in ckpts)
                 ckpt_name = {ckpts[key]: key for key in ckpts}[best_val]
                 if 'DATAPATH' in os.environ:
                     ckpt_name = path.join(os.environ['DATAPATH'],ckpt_name[1:])
                 if path.isfile(ckpt_name):
                     break
-                else:
-                    del ckpts[ckpt_name]
-                    has_files = len(ckpts) > 0
+                del ckpts[ckpt_name]
+                has_files = len(ckpts) > 0
 
             if not has_files:
                 raise ValueError(f'No valid files contained in ckpt-name-holding file "{ckpt_name}"')
@@ -126,8 +126,6 @@ class Form(QtWidgets.QDialog,LoggingParent):
         self.net.eval()
         with torch.no_grad():
             poke_emb, *_ = self.net.poke_embedder.encoder(poke)
-            # do not sample, as this mapping should be deterministic
-
             if self.net.use_cond:
                 if self.net.conditioner.be_deterministic:
                     cond, *_ = self.net.conditioner.encoder(img)
@@ -138,35 +136,28 @@ class Form(QtWidgets.QDialog,LoggingParent):
             spatial=self.net.first_stage_config['architecture']['min_spatial_size']
             flow_input = torch.randn((1,self.config['architecture']['flow_in_channels'],spatial,spatial),device=self.config['gpu']).detach()
 
-            if self.net.use_cond:
-                cond = torch.cat([cond, poke_emb], dim=1)
-            else:
-                cond = poke_emb
-
+            cond = torch.cat([cond, poke_emb], dim=1) if self.net.use_cond else poke_emb
             out_motion = self.net.flow(flow_input,cond,reverse=True)
 
-            seq = self.net.decode_first_stage(out_motion,img[:,None],length=length)
-
-            return seq
+            return self.net.decode_first_stage(out_motion,img[:,None],length=length)
 
 
     def __get_net_model(self):
         ckpt_path = self._load_ckpt()
         self.net = PokeMotionModel.load_from_checkpoint(ckpt_path,map_location="cpu",config=self.config,strict=False, dirs=self.dirs)
         self.net.to(self.config['gpu'])
-        self.logger.info(f'Net model loaded successfully')
+        self.logger.info('Net model loaded successfully')
 
 
 
     def load_next_image(self):
         if self.config["ui"]["target_id"] is None:
             actual_id = int(np.random.choice(np.arange(self.dataset.datadict["img_path"].shape[0]),1))
+        elif isinstance(self.config["ui"]["target_id"],int):
+            actual_id = self.config["ui"]["target_id"]
         else:
-            if isinstance(self.config["ui"]["target_id"],int):
-                actual_id = self.config["ui"]["target_id"]
-            else:
-                assert isinstance(self.config["ui"]["target_id"],list)
-                actual_id = int(np.random.choice(self.config["ui"]["target_id"],1))
+            assert isinstance(self.config["ui"]["target_id"],list)
+            actual_id = int(np.random.choice(self.config["ui"]["target_id"],1))
         self.actual_id = actual_id
         actual_img_path = self.dataset.datadict["img_path"][actual_id]
         actual_image = cv2.imread(actual_img_path)
@@ -246,10 +237,10 @@ class Form(QtWidgets.QDialog,LoggingParent):
             pad_last = np.stack([gt[:,-1]]* n_padded,axis=1)
             gt_pad =np.concatenate([pad, pad, gt, pad_last],axis=1)[0]
             gt_enrollment = np.concatenate(list(gt_pad),axis=1)
-            savename_gt = path.join(basepath, f'gt_vid.mp4')
+            savename_gt = path.join(basepath, 'gt_vid.mp4')
             save_video(gt_pad,savename_gt,fps=self.save_fps)
 
-            savename_gt_en = savename_gt[:-4] + 'enrollment.png'
+            savename_gt_en = f'{savename_gt[:-4]}enrollment.png'
             gt_enrollment = cv2.cvtColor(gt_enrollment,cv2.COLOR_RGB2BGR)
             cv2.imwrite(savename_gt_en,gt_enrollment)
 
@@ -275,7 +266,7 @@ class Form(QtWidgets.QDialog,LoggingParent):
                 save_video(act_video,savename,fps=self.save_fps)
 
                 if self.config["ui"]["make_enrollment"]:
-                    savename_en = savename[:-4] + "_enrollment.png"
+                    savename_en = f"{savename[:-4]}_enrollment.png"
                     e = cv2.cvtColor(enrollment, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(savename_en, e)
     
@@ -311,7 +302,7 @@ class Form(QtWidgets.QDialog,LoggingParent):
 
             if self.config["ui"]["make_enrollment"]:
                 self.logger.info("Making enrollment plot...")
-                savename_en = savename[:-4] + "_enrollment.png"
+                savename_en = f"{savename[:-4]}_enrollment.png"
                 e = cv2.cvtColor(out_enrollment, cv2.COLOR_RGB2BGR)
                 cv2.imwrite(savename_en, e)
 
@@ -378,10 +369,9 @@ class Form(QtWidgets.QDialog,LoggingParent):
     def update_pd(self,img, id=None):
         if img.shape[0] != self.display_image_h or img.shape[1] != self.display_image_w:
             img = cv2.resize(img,(self.display_image_h,self.display_image_w),interpolation=cv2.INTER_LINEAR)
-        if self.show_id:
-            if id is not None:
-                img = cv2.UMat.get(cv2.putText(cv2.UMat(img), f"id {id}", (int(img.shape[1] // 3), img.shape[0] - int(img.shape[0] / 6)), cv2.FONT_HERSHEY_SIMPLEX,
-                                               float(img.shape[0] / 256), (255, 0, 0), int(img.shape[0] / 128)))
+        if self.show_id and id is not None:
+            img = cv2.UMat.get(cv2.putText(cv2.UMat(img), f"id {id}", (int(img.shape[1] // 3), img.shape[0] - int(img.shape[0] / 6)), cv2.FONT_HERSHEY_SIMPLEX,
+                                           float(img.shape[0] / 256), (255, 0, 0), int(img.shape[0] / 128)))
         self.pd.setPixmap(
             QtGui.QPixmap(self.numpy_to_qImage(img.copy())).scaled(self.display_image_w, self.display_image_h)
         )
@@ -487,7 +477,7 @@ class GTImage(QtWidgets.QLabel):
         self.source, self.target = None, None
         self.parent = parent
         self.parent.logger.info(f"Max ampltude of GTImage is {max_amplitude}")
-        if max_amplitude==None:
+        if max_amplitude is None:
             self.max_amplitude = int(display_image_w/5)
         else:
             self.max_amplitude = max_amplitude
@@ -498,11 +488,12 @@ class GTImage(QtWidgets.QLabel):
 
     def numpy_to_qImage(self, np_image):
         np_image = np_image.astype(np.uint8)
-        qimage = QtGui.QImage(np_image.copy(),
-                              np_image.shape[1],
-                              np_image.shape[0],
-                              QtGui.QImage.Format_RGB888)
-        return qimage
+        return QtGui.QImage(
+            np_image.copy(),
+            np_image.shape[1],
+            np_image.shape[0],
+            QtGui.QImage.Format_RGB888,
+        )
 
     def set_image(self, img, id=None, sleep=False,draw=False):
         if img.shape[0] != self.display_image_h or img.shape[1] != self.display_image_w != self.display_image_w:
@@ -558,8 +549,15 @@ class GTImage(QtWidgets.QLabel):
 
 def create_dir_structure(config, model_name):
     subdirs = ["ckpt", "config", "generated", "log"]
-    structure = {subdir: path.join(config["general"]["base_dir"], config["general"]["experiment"], subdir, model_name) for subdir in subdirs}
-    return structure
+    return {
+        subdir: path.join(
+            config["general"]["base_dir"],
+            config["general"]["experiment"],
+            subdir,
+            model_name,
+        )
+        for subdir in subdirs
+    }
 
 
 if __name__=="__main__":
@@ -605,12 +603,11 @@ if __name__=="__main__":
 
     print(f'saved config is {saved_config}')
 
-    if path.isfile(saved_config):
-        with open(saved_config, "r") as f:
-            complete_config = yaml.load(f, Loader=yaml.FullLoader)
-
-    else:
+    if not path.isfile(saved_config):
         raise FileNotFoundError("No saved config file found but model is intended to be restarted. Aborting....")
+
+    with open(saved_config, "r") as f:
+        complete_config = yaml.load(f, Loader=yaml.FullLoader)
 
     complete_config.update({"ui": config["ui"]})
     complete_config.update({"gpu": torch.device(

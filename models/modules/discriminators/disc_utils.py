@@ -23,8 +23,7 @@ def calculate_adaptive_weight(nll_loss, g_loss, discriminator_weight, last_layer
 def hinge_d_loss(logits_real, logits_fake):
     loss_real = torch.mean(F.relu(1. - logits_real))
     loss_fake = torch.mean(F.relu(1. + logits_fake))
-    d_loss = 0.5 * (loss_real + loss_fake)
-    return d_loss
+    return 0.5 * (loss_real + loss_fake)
 
 
 def adopt_weight(weight, epoch, threshold=0, value=0.):

@@ -25,9 +25,9 @@ from data.helper_functions import preprocess_image
 h36m_aname2aid = {name: i for i, name in enumerate(["Directions","Discussion","Eating","Greeting","Phoning",
                                                     "Posing","Purchases","Sitting","SittingDown","Smoking",
                                                     "Photo","Waiting","Walking","WalkDog","WalkTogether"])}
-h36m_aname2aid.update({"WalkingTogether": h36m_aname2aid["WalkTogether"]})
-h36m_aname2aid.update({"WalkingDog": h36m_aname2aid["WalkDog"]})
-h36m_aname2aid.update({"TakingPhoto": h36m_aname2aid["Photo"]})
+h36m_aname2aid["WalkingTogether"] = h36m_aname2aid["WalkTogether"]
+h36m_aname2aid["WalkingDog"] = h36m_aname2aid["WalkDog"]
+h36m_aname2aid["TakingPhoto"] = h36m_aname2aid["Photo"]
 
 
 def _do_parallel_data_prefetch(func, Q, data, idx):
@@ -108,11 +108,7 @@ def process_video(f_name, args):
                 subaction_id = int(fn[-1])
             else:
                 max_id = max(map(lambda z: int(z.split(' ')[-1].split('.')[0]), same_action_videos))
-                if max_id ==2:
-                    subaction_id = 1
-                else:
-                    subaction_id = 2
-
+                subaction_id = 1 if max_id ==2 else 2
             cam_id = vid_name.split('.')[1]
             base_path = path.join(args.processed_dir,subject,f'{action}-{subaction_id}',cam_id)
 
@@ -162,7 +158,7 @@ def process_video(f_name, args):
                     flow_target_file = path.join(
                         base_path, f"prediction_{first_fidx}_{second_fidx-d}.flow"
                     )
-                    if not os.path.exists(flow_target_file + ".npy"):
+                    if not os.path.exists(f"{flow_target_file}.npy"):
                         # predict and write flow prediction
                         img, img2 = (
                             get_image(vidcap, first_fidx),
@@ -225,9 +221,7 @@ def extract(args):
     splits = np.array_split(np.arange(len(data_names)), args.num_workers)
     arguments = [
         [fn_extract, Q, part, i]
-        for i, part in enumerate(
-            [data_names[s[0]:s[-1]+1] for s in splits]
-        )
+        for i, part in enumerate(data_names[s[0] : s[-1] + 1] for s in splits)
     ]
     processes = []
     for i in range(args.num_workers):
@@ -281,26 +275,20 @@ def prepare(args):
         "object_id":[],
     }
     if "iPER" in args.processed_dir.split("/") or "human36m" in args.processed_dir.split("/") or \
-            "human3.6M" in args.processed_dir.split("/") :
-        datadict.update({"action_id": [], "actor_id": []})
+            "human3.6M" in args.processed_dir.split("/"):
+        datadict |= {"action_id": [], "actor_id": []}
 
-    train_test_split = args.data.dataset == 'Human36mDataset' or args.data.dataset == 'TaichiDataset'
+    train_test_split = args.data.dataset in ['Human36mDataset', 'TaichiDataset']
 
     fmax = args.flow_max
     fdelta = args.flow_delta
     fd = args.frames_discr
 
     if train_test_split:
-        datadict.update({"train": []})
+        datadict["train"] = []
         if args.data.dataset == 'TaichiDataset':
             oname2oid = {}
 
-    # logger.info(f'Metafile is stored as "{args.meta_file_name}.p".')
-    # logger.info(f"args.check_imgs is {args.check_imgs}")
-    max_flow_length = int(fmax / fdelta)
-
-    # if args.process_vids:
-    if train_test_split:
         if args.data.dataset == 'Human36mDataset':
             videos = [d for d in glob(path.join(args.processed_dir, "*", "*", '*')) if path.isdir(d)]
         else:
@@ -311,6 +299,7 @@ def prepare(args):
     videos = natsorted(videos)
 
     actual_oid = 0
+    max_flow_length = int(fmax / fdelta)
     for vid, vid_name in enumerate(videos):
         logger.info(f'Video name is "{vid_name}"')
         images = glob(path.join(vid_name, "*.png"))
@@ -324,7 +313,7 @@ def prepare(args):
             actor_id = int(vid_name.split("/")[-1].split("_")[0])
             action_id = int(vid_name.split("/")[-1].split("_")[-1])
         elif args.data.dataset == 'TaichiDataset':
-            train = "train" == vid_name.split("/")[-2]
+            train = vid_name.split("/")[-2] == "train"
             msg = "train" if train else "test"
             print(f"Video in {msg}-split")
 
@@ -452,7 +441,7 @@ def get_nn(ids,train, cfg_dict):
         nn_general[c] = nn_gen
         nn_other_vid[c] = nn_ov
 
-    print(f'Finished nearest neighbor computation')
+    print('Finished nearest neighbor computation')
 
     return nn_other_vid
 

@@ -37,16 +37,10 @@ class generator_block(nn.Module):
         dx = self.conv_0(self.actvn(self.norm_0(x, cond2)))
         dx = self.conv_1(self.actvn(self.norm_1(dx, cond1)))
 
-        out = x_s + dx
-
-        return out
+        return x_s + dx
 
     def shortcut(self, x):
-        if self.learned_shortcut:
-            x_s = self.conv_s(self.norm_s(x))
-        else:
-            x_s = x
-        return x_s
+        return self.conv_s(self.norm_s(x)) if self.learned_shortcut else x
 
     def actvn(self, x):
         return F.leaky_relu(x, 2e-1)
@@ -83,7 +77,7 @@ class Generator(nn.Module):
                 nn.init.constant_(m.bias.data, 0)
 
     def reset_params(self):
-        for _, m in enumerate(self.modules()):
+        for m in self.modules():
             self.weight_init(m)
 
     def forward(self, img, motion):

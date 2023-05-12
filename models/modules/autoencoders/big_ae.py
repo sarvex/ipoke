@@ -42,10 +42,9 @@ class BigAE(nn.Module):
 class ClassUp(nn.Module):
     def __init__(self, dim, depth, hidden_dim=256, use_sigmoid=False, out_dim=None):
         super().__init__()
-        layers = []
-        layers.append(nn.Linear(dim, hidden_dim))
+        layers = [nn.Linear(dim, hidden_dim)]
         layers.append(nn.LeakyReLU())
-        for d in range(depth):
+        for _ in range(depth):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.LeakyReLU())
         layers.append(nn.Linear(hidden_dim, dim if out_dim is None else out_dim))
@@ -170,8 +169,7 @@ class ResnetEncoder(nn.Module):
         if self.do_pre_processing:
             x = self._pre_process(x)
         features = self.features(x)
-        encoding = self.model.fc(features)
-        return encoding
+        return self.model.fc(features)
 
     def features(self, x):
         if self.do_pre_processing:

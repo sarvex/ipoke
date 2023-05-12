@@ -34,14 +34,19 @@ class ConvEncoder(nn.Module):
 
         act = "elu" #if self.variational else "relu"
 
-        blocks = []
-        bottleneck = []
         nf = 32 if layers is None else layers[0]
-        blocks.append(
+        blocks = [
             Conv2dBlock(
-                nf_in, nf, 3, 2, norm=norm_layer, activation=act, padding=1,snorm=spectral_norm
+                nf_in,
+                nf,
+                3,
+                2,
+                norm=norm_layer,
+                activation=act,
+                padding=1,
+                snorm=spectral_norm,
             )
-        )
+        ]
         self.depths.append(nf)
         n_stages = n_stages if layers is None else len(layers)
         for n in range(n_stages - 1):
@@ -59,7 +64,7 @@ class ConvEncoder(nn.Module):
             self.depths.insert(0,nf)
 
         self.nf_in_bn = nf
-        bottleneck.append(ResBlock(nf, nf_max,activation=act, norm=norm_layer))
+        bottleneck = [ResBlock(nf, nf_max, activation=act, norm=norm_layer)]
         # if layers is None:
         #     bottleneck.append(ResBlock(nf_max, nf_max,activation=act, norm=norm_layer))
 
@@ -129,8 +134,7 @@ class ConvDecoder(nn.Module):
 
         if del_shape:
             assert not shape
-        out = self.out_conv(x)
-        return out
+        return self.out_conv(x)
 
 class SpadeCondConvDecoder(nn.Module):
 
@@ -173,5 +177,4 @@ class SpadeCondConvDecoder(nn.Module):
 
         if del_shape:
             assert not actual_frame
-        out = self.out_conv(x)
-        return out
+        return self.out_conv(x)

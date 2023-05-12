@@ -31,7 +31,7 @@ if __name__ == '__main__':
         try:
             test_cmd = f"python -W ignore main.py --config config/second_stage.yaml --gpus {gpu} --model_name {n} --test {args.test}"
             if args.test == 'fvd' and "LD_LIBRARY_PATH" in os.environ:
-                test_cmd = f'LD_LIBRARY_PATH={os.environ["LD_LIBRARY_PATH"]} ' + test_cmd
+                test_cmd = f'LD_LIBRARY_PATH={os.environ["LD_LIBRARY_PATH"]} {test_cmd}'
             os.system(test_cmd)
         except Exception as e:
             logger.error(e)

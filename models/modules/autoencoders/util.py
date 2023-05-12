@@ -35,7 +35,7 @@ class Conv2dTransposeBlock(nn.Module):
         elif norm == "none":
             self.norm = None
         else:
-            assert 0, "Unsupported normalization: {}".format(norm)
+            assert 0, f"Unsupported normalization: {norm}"
 
         # initialize activation
         if activation == "elu":
@@ -47,7 +47,7 @@ class Conv2dTransposeBlock(nn.Module):
         elif activation == "none":
             self.activation = None
         else:
-            assert 0, "Unsupported activation: {}".format(activation)
+            assert 0, f"Unsupported activation: {activation}"
         if snorm:
             self.conv = spectral_norm(nn.ConvTranspose2d(in_dim, out_dim, ks, st, bias=self.use_bias, padding=padding, output_padding=padding))
         else:
@@ -100,7 +100,7 @@ class AdaptiveInstanceNorm2d(nn.Module):
         return out.view(b, c, *x.size()[2:])
 
     def __repr__(self):
-        return self.__class__.__name__ + "(" + str(self.num_features) + ")"
+        return f"{self.__class__.__name__}({str(self.num_features)})"
 
 
 class ResBlock(nn.Module):
@@ -131,17 +131,6 @@ class ResBlock(nn.Module):
                 snorm= snorm
             )
 
-            self.conv2 = Conv2dBlock(
-                dim_out,
-                dim_out,
-                3,
-                1,
-                1,
-                norm=self.norm,
-                activation="none",
-                pad_type=pad_type,
-                snorm=snorm
-            )
         else:
             self.conv1 = Conv2dBlock(
                 dim_in,
@@ -155,18 +144,17 @@ class ResBlock(nn.Module):
                 snorm=snorm
             )
 
-            self.conv2 = Conv2dBlock(
-                dim_out,
-                dim_out,
-                3,
-                1,
-                1,
-                norm=self.norm,
-                activation="none",
-                pad_type=pad_type,
-                snorm=snorm
-            )
-
+        self.conv2 = Conv2dBlock(
+            dim_out,
+            dim_out,
+            3,
+            1,
+            1,
+            norm=self.norm,
+            activation="none",
+            pad_type=pad_type,
+            snorm=snorm
+        )
         self.convolve_res = dim_in != dim_out or upsampling or stride != 1
         if self.convolve_res:
             if not upsampling:
@@ -218,7 +206,7 @@ class Conv2dBlock(nn.Module):
         elif pad_type == "zero":
             self.pad = nn.ZeroPad2d(padding)
         else:
-            assert 0, "Unsupported padding type: {}".format(pad_type)
+            assert 0, f"Unsupported padding type: {pad_type}"
 
         # initialize normalization
         norm_dim = out_dim
@@ -233,7 +221,7 @@ class Conv2dBlock(nn.Module):
         elif norm == "none":
             self.norm = None
         else:
-            assert 0, "Unsupported normalization: {}".format(norm)
+            assert 0, f"Unsupported normalization: {norm}"
 
         # initialize activation
         if activation == "relu":
@@ -247,7 +235,7 @@ class Conv2dBlock(nn.Module):
         elif activation == "none":
             self.activation = None
         else:
-            assert 0, "Unsupported activation: {}".format(activation)
+            assert 0, f"Unsupported activation: {activation}"
         if snorm:
             self.conv = spectral_norm(nn.Conv2d(in_dim, out_dim, ks, st, bias=self.use_bias))
         else:
@@ -312,22 +300,20 @@ class Distribution(object):
             self.var = self.std = torch.zeros_like(self.mean)
 
     def sample(self):
-        x = self.mean + self.std*torch.randn(self.mean.shape)
-        return x
+        return self.mean + self.std*torch.randn(self.mean.shape)
 
     def kl(self, other=None):
         if self.deterministic:
             return torch.Tensor([0.])
+        if other is None:
+            return 0.5*torch.sum(torch.pow(self.mean, 2)
+                    + self.var - 1.0 - self.logvar,
+                    dim=[1,2,3])
         else:
-            if other is None:
-                return 0.5*torch.sum(torch.pow(self.mean, 2)
-                        + self.var - 1.0 - self.logvar,
-                        dim=[1,2,3])
-            else:
-                return 0.5*torch.sum(
-                        torch.pow(self.mean - other.mean, 2) / other.var
-                        + self.var / other.var - 1.0 - self.logvar + other.logvar,
-                        dim=[1,2,3])
+            return 0.5*torch.sum(
+                    torch.pow(self.mean - other.mean, 2) / other.var
+                    + self.var / other.var - 1.0 - self.logvar + other.logvar,
+                    dim=[1,2,3])
 
     def nll(self, sample):
         if self.deterministic:
@@ -409,9 +395,8 @@ class ActNorm(nn.Module):
                     "Initializing ActNorm in reverse direction is "
                     "disabled by default. Use allow_reverse_init=True to enable."
                 )
-            else:
-                self.initialize(output)
-                self.initialized.fill_(1)
+            self.initialize(output)
+            self.initialized.fill_(1)
 
         if len(output.shape) == 2:
             output = output[:,:,None,None]
@@ -468,7 +453,7 @@ class ADAIN2d(nn.Module):
         return out.view(b, c, *x.size()[2:])
 
     def __repr__(self):
-        return self.__class__.__name__ + "(" + str(self.num_features) + ")"
+        return f"{self.__class__.__name__}({str(self.num_features)})"
 
 class Spade(nn.Module):
     def __init__(self, num_features, dic, num_groups=16):
@@ -477,9 +462,9 @@ class Spade(nn.Module):
         self.num_features = num_features
         while self.num_features % num_groups != 0:
             num_groups -= 1
-        if name == 'BN' or name == 'batch':
+        if name in ['BN', 'batch']:
             self.norm = nn.BatchNorm3d(num_features, affine=False, track_running_stats=dic['running_stats'])
-        elif name == 'group' or name == 'Group':
+        elif name in ['group', 'Group']:
             self.norm = nn.GroupNorm(num_groups, num_features, affine=False)
         elif name == 'instance':
             self.norm = nn.InstanceNorm3d(num_features, affine=False, track_running_stats=dic['running_stats'])
@@ -505,9 +490,9 @@ class Norm3D(nn.Module):
         super().__init__()
         name = dic['norm']
         self.num_features = num_features
-        if name == 'BN' or name == 'batch':
+        if name in ['BN', 'batch']:
             self.bn = nn.BatchNorm3d(num_features, affine=True, track_running_stats=dic['running_stats'])
-        elif name == 'group' or name == 'Group':
+        elif name in ['group', 'Group']:
             self.bn = nn.GroupNorm(num_groups, num_features, affine=True)
         elif name == 'instance':
             self.bn = nn.InstanceNorm3d(num_features, affine=True, track_running_stats=dic['running_stats'])
@@ -515,8 +500,7 @@ class Norm3D(nn.Module):
             raise NotImplementedError('Normalization Method not implemented: ', name)
 
     def forward(self, x, y=None):
-        out = self.bn(x)
-        return out
+        return self.bn(x)
 
 
 class ADAIN(nn.Module):
@@ -526,9 +510,9 @@ class ADAIN(nn.Module):
         self.num_features = num_features
         while self.num_features % num_groups != 0:
             num_groups -= 1
-        if name == 'BN' or name == 'batch':
+        if name in {'BN', 'batch'}:
             self.bn = nn.BatchNorm3d(num_features, affine=False, track_running_stats=dic['running_stats'])
-        elif name == 'group' or name == 'Group':
+        elif name in {'group', 'Group'}:
             self.bn = nn.GroupNorm(num_groups, num_features, affine=False)
         elif name == 'instance':
             self.bn = nn.InstanceNorm3d(num_features, affine=False, track_running_stats=dic['running_stats'])

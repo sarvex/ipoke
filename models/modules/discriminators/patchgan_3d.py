@@ -9,22 +9,19 @@ from torch.nn.utils import spectral_norm
 def resnet10(**kwargs):
     """Constructs a ResNet-10 model.
     """
-    model = ResNet(BasicBlock, [1, 1, 1, 1], **kwargs)
-    return model
+    return ResNet(BasicBlock, [1, 1, 1, 1], **kwargs)
 
 
 def resnet(**kwargs):
     """Constructs a ResNet-18 model.
     """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-    return model
+    return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
 
 def resnet34(**kwargs):
     """Constructs a ResNet-34 model.
     """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    return model
+    return ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
 
 
 def conv3x3x3(in_planes, out_planes, stride=1, stride_t=1):
@@ -186,10 +183,7 @@ class ResNet(nn.Module):
         #sample_duration = dic.Network['sequence_length']-1
         # max_channels = config["max_channels"] if "max_channels" in config else 256
         num_classes = config["num_classes"]
-        if config['patch_temp_disc']:
-            stride_t = 1
-        else:
-            stride_t = 2
+        stride_t = 1 if config['patch_temp_disc'] else 2
         self.conv1 = spectral_norm(nn.Conv3d(
             3,
             64,
@@ -226,23 +220,19 @@ class ResNet(nn.Module):
                     bias=False)),
                 nn.GroupNorm(num_channels=planes * block.expansion, num_groups=16))
 
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, stride_t, downsample))
+        layers = [block(self.inplanes, planes, stride, stride_t, downsample)]
         self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
+        layers.extend(block(self.inplanes, planes) for _ in range(1, blocks))
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = []
         x = self.conv1(x)
         x = self.gn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
 
         x = self.layer1(x)
-        out.append(x)
+        out = [x]
         x = self.layer2(x)
         out.append(x)
         x = self.layer3(x)
@@ -250,10 +240,9 @@ class ResNet(nn.Module):
         x = self.layer4(x)
         out.append(x)
         x1 = self.avgpool(x)
-        output = []
-        for i in range(x1.size(2)):
-            output.append(self.fc(x1[:, :, i].reshape(x1.size(0), -1)))
-
+        output = [
+            self.fc(x1[:, :, i].reshape(x1.size(0), -1)) for i in range(x1.size(2))
+        ]
         return torch.cat(output, dim=1), out
 
 
@@ -264,12 +253,11 @@ class ResNet(nn.Module):
             # vanilla gan loss
             return self.bce(pred, torch.ones_like(pred) if real else torch.zeros_like(pred))
         else:
-            # hinge loss
-            if real:
-                l = torch.mean(torch.nn.ReLU()(1.0 - pred))
-            else:
-                l = torch.mean(torch.nn.ReLU()(1.0 + pred))
-            return l
+            return (
+                torch.mean(torch.nn.ReLU()(1.0 - pred))
+                if real
+                else torch.mean(torch.nn.ReLU()(1.0 + pred))
+            )
 
     def gp(self, pred_fake, x_fake):
         batch_size = x_fake.size(0)
@@ -279,8 +267,7 @@ class ResNet(nn.Module):
         )[0]
         grad_dout2 = grad_dout.pow(2)
         assert (grad_dout2.size() == x_fake.size())
-        reg = grad_dout2.view(batch_size, -1).sum(1)
-        return reg
+        return grad_dout2.view(batch_size, -1).sum(1)
 
     def gp2(self, pred_fake, x_fake):
         batch_size = x_fake.size(0)

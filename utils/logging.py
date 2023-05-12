@@ -60,7 +60,7 @@ def batches2image_grid(batches: list, captions=None, n_logged: int = None, image
     for imgs, caption in zip(batches, captions):
 
         imgs = scale_imgs(imgs[:n_logged].detach(), input_format=image_range).permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
-        img_row = np.concatenate([img for img in imgs], axis=1)
+        img_row = np.concatenate(list(imgs), axis=1)
         if caption is not None:
             img_row = cv2.UMat.get(cv2.putText(cv2.UMat(img_row), caption, (int(img_row.shape[1] // 3), img_row.shape[0] - int(img_row.shape[0] / 6)), cv2.FONT_HERSHEY_SIMPLEX,
                                                float(img_row.shape[0] / 256), (255, 0, 0), int(img_row.shape[0] / 128)))
@@ -138,15 +138,14 @@ def make_poke_img(imgs, pokes, poke_normalized=False, poke_coords=None):
                     arrow_dir = poke[:, arrow_start[0], arrow_start[1]]
                     if poke_normalized:
                         arrow_dir = arrow_dir / (np.linalg.norm(arrow_dir) + 1e-8) * (poke.shape[1] / 5)
-                    if not math.isnan(arrow_dir[0]) or not math.isnan(arrow_dir[1]):
-                        # reverse as opecv requires x coordinate first
-                        arrow_start = tuple(reversed(arrow_start))
-                        arrow_end = (arrow_start[0] + int(math.ceil(arrow_dir[0])), arrow_start[1] + int(math.ceil(arrow_dir[1])))
-                        img = cv2.UMat.get(cv2.arrowedLine(cv2.UMat(img), arrow_start, arrow_end, (255, 0, 0), max(int(img.shape[0] / 64), 1)))
-                        poke_vis_black = cv2.UMat.get(cv2.arrowedLine(cv2.UMat(poke_vis_black), arrow_start, arrow_end, (255, 0, 0), max(int(img.shape[0] / 64), 1)))
-                    else:
+                    if math.isnan(arrow_dir[0]) and math.isnan(arrow_dir[1]):
                         continue
 
+                    # reverse as opecv requires x coordinate first
+                    arrow_start = tuple(reversed(arrow_start))
+                    arrow_end = (arrow_start[0] + int(math.ceil(arrow_dir[0])), arrow_start[1] + int(math.ceil(arrow_dir[1])))
+                    img = cv2.UMat.get(cv2.arrowedLine(cv2.UMat(img), arrow_start, arrow_end, (255, 0, 0), max(int(img.shape[0] / 64), 1)))
+                    poke_vis_black = cv2.UMat.get(cv2.arrowedLine(cv2.UMat(poke_vis_black), arrow_start, arrow_end, (255, 0, 0), max(int(img.shape[0] / 64), 1)))
             poke_imgs.append(img)
             poke_vis.append(poke_vis_black)
         else:
@@ -242,7 +241,7 @@ def make_flow_img_grid(start_img, tgt, samples, poke, flow, image_range="float-1
 
     if is_samples:
         sample_rows = []
-        for i, sample in enumerate(samples):
+        for sample in samples:
             sample = scale_imgs(sample.detach(), input_format=image_range).permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
             sample_row = np.concatenate(list(sample), axis=1)
             sample_row = cv2.UMat.get(cv2.putText(cv2.UMat(sample_row), "Poke samples", (int(sample_row.shape[1] // 3), sample_row.shape[0] - int(sample_row.shape[0] / 6)), cv2.FONT_HERSHEY_SIMPLEX,
@@ -286,9 +285,7 @@ def make_flow_img_grid(start_img, tgt, samples, poke, flow, image_range="float-1
     if flow_original is not None:
         out_list.append(flow_orig)
 
-    out_grid = np.concatenate(out_list, axis=0)
-
-    return out_grid
+    return np.concatenate(out_list, axis=0)
 
 
 def make_animated_grid(start_img, tgt, samples, poke, flow, image_range="float-1", poke_normalized=False, wandb_mode=True):
@@ -362,7 +359,7 @@ def draw_poke_rect(imgs, pokes):
 
     imgs_out = []
 
-    for i, (img, poke) in enumerate(zip(imgs, pokes)):
+    for img, poke in zip(imgs, pokes):
         poke_points = np.nonzero((poke > 0).any(-1))
         if poke_points[0].size == 0:
             imgs_out.append(np.zeros_like(img))
@@ -392,13 +389,12 @@ def get_endpoint(poke, n_logged, poke_coords=None):
                 if np.all(coord_pair > 0):
                     arrow_start = tuple(coord_pair)
                     arrow_dir = p[:, arrow_start[0], arrow_start[1]]
-                    if not math.isnan(arrow_dir[0]) or not math.isnan(arrow_dir[1]):
-                        # reverse as opecv requires x coordinate first
-                        arrow_start = tuple(reversed(arrow_start))
-                        endpoint = (arrow_start[0] + int(math.ceil(arrow_dir[0])), arrow_start[1] + int(math.ceil(arrow_dir[1])))
-                        current_endpoints.append(endpoint)
-                    else:
+                    if math.isnan(arrow_dir[0]) and math.isnan(arrow_dir[1]):
                         continue
+                    # reverse as opecv requires x coordinate first
+                    arrow_start = tuple(reversed(arrow_start))
+                    endpoint = (arrow_start[0] + int(math.ceil(arrow_dir[0])), arrow_start[1] + int(math.ceil(arrow_dir[1])))
+                    current_endpoints.append(endpoint)
         else:
             poke_points = np.nonzero(np.linalg.norm(p, axis=0) > 0)
             start_y = poke_points[0].mean()
@@ -459,10 +455,7 @@ def make_temporal_border(video, poke, n_logged, draw_endpoint=False, n_pad_frame
         padded_vids.append(np.concatenate([start_frames, vid, end_frames], axis=0))
 
     # make video row
-    if concat:
-        return np.concatenate(padded_vids, axis=2)
-    else:
-        return padded_vids
+    return np.concatenate(padded_vids, axis=2) if concat else padded_vids
 
 
 def make_flow_video_with_samples(src, poke, samples, tgt, flow, n_logged, poke_normalized=False, wandb_mode=True, image_range="float-1", poke_coords=None):
@@ -561,9 +554,6 @@ def put_text(img, text, loc=None, color=None, font_scale=None):
 def make_transfer_grids(src1, src2, poke1, poke2, vid1, vid2, m1_c2, m2_c1, poke_coords1, poke_coords2, poke_normalized=False, make_enrollment=False, sample_ids1=None, sample_ids2=None):
     # nummer of padded src frames before and after the video
     n_padded = 4
-    # pad width in pxiels for spaceing between different rows of enrollment plots
-    pad_width = 10
-
     # bring in right form
     src1 = scale_imgs(src1).detach().permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
     src2 = scale_imgs(src2).detach().permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
@@ -588,8 +578,12 @@ def make_transfer_grids(src1, src2, poke1, poke2, vid1, vid2, m1_c2, m2_c1, poke
     vid2_list = make_temporal_border(vid2, poke2, n_logged=vid1.shape[0], draw_endpoint=False, n_pad_frames=n_padded, concat=False)
     if sample_ids2 is not None:
         vid2 = np.concatenate([np.stack([put_text(frame, f'ID: {sid}') for frame in vid], axis=0) for vid, sid in zip(vid2_list, sample_ids2)], axis=2)
-    vid1 = put_text_to_video_row(vid1, f'Motion 1; ID', display_frame_nr=True, n_padded=n_padded)
-    vid2 = put_text_to_video_row(vid2, f'Motion 2 ID', display_frame_nr=True, n_padded=n_padded)
+    vid1 = put_text_to_video_row(
+        vid1, 'Motion 1; ID', display_frame_nr=True, n_padded=n_padded
+    )
+    vid2 = put_text_to_video_row(
+        vid2, 'Motion 2 ID', display_frame_nr=True, n_padded=n_padded
+    )
 
     m2_c1 = scale_imgs(m2_c1).detach().permute(0, 1, 3, 4, 2).cpu().numpy().astype(np.uint8)
     m1_c2 = scale_imgs(m1_c2).detach().permute(0, 1, 3, 4, 2).cpu().numpy().astype(np.uint8)
@@ -610,6 +604,9 @@ def make_transfer_grids(src1, src2, poke1, poke2, vid1, vid2, m1_c2, m2_c1, poke
 
     if make_enrollment:
         enrollments = []
+        # pad width in pxiels for spaceing between different rows of enrollment plots
+        pad_width = 10
+
         for v1, tm1_c2, v2, tm2_c1 in zip(vid1_list, m1_c2_list, vid2_list, m2_c1_list):
             v1_enroll = np.concatenate(list(v1), axis=1)
             v2_enroll = np.concatenate(list(v2), axis=1)
@@ -630,9 +627,6 @@ def make_transfer_grids_new(src1, src2, poke1, vid1, m1_c2, m_random_c2, poke_co
 
     # nummer of padded src frames before and after the video
     n_padded = 4
-    # pad width in pxiels for spaceing between different rows of enrollment plots
-    pad_width = 10
-
     # bring in right form
     src1 = scale_imgs(src1).detach().permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
     src2 = scale_imgs(src2).detach().permute(0, 2, 3, 1).cpu().numpy().astype(np.uint8)
@@ -692,6 +686,9 @@ def make_transfer_grids_new(src1, src2, poke1, vid1, m1_c2, m_random_c2, poke_co
     if make_enrollment:
         enrollments = []
         single_videos = []
+        # pad width in pxiels for spaceing between different rows of enrollment plots
+        pad_width = 10
+
         for v1, tm1_c2, tmr_c2, in zip(vid1_list, m1_c2_list, mr_c2_list):
             video_column = np.concatenate([v1, tm1_c2, tmr_c2], axis=1)
             single_videos.append(video_column)
@@ -795,7 +792,7 @@ def make_samples_and_samplegrid(src, poke, tgt, samples, poke_normalized=False, 
 
 
 def save_video(video, savepath, fps=5):
-    assert savepath.endswith('.mp4'), f'Only mp4 videos supported.'
+    assert savepath.endswith('.mp4'), 'Only mp4 videos supported.'
     savepath_pre = savepath.split('.mp4')[0] + '_pre.mp4'
     writer = cv2.VideoWriter(
         savepath_pre,

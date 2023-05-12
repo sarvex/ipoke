@@ -59,8 +59,7 @@ class SupervisedTransformer(nn.Module):
     def sample(self, shape, label):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde, label)
-        return sample
+        return self.reverse(z_tilde, label)
 
     def forward(self, input, conditioning, reverse=False, train=False):
 
@@ -128,8 +127,7 @@ class SupervisedConvTransformer(nn.Module):
     def sample(self, shape, label):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde, label)
-        return sample
+        return self.reverse(z_tilde, label)
 
     def forward(self, input, conditioning, reverse=False, train=False):
 
@@ -314,8 +312,7 @@ class UnsupervisedConvTransformer(nn.Module):
 
     def sample(self,shape,device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde)
-        return sample
+        return self.reverse(z_tilde)
 
 class UnsupervisedMaCowTransformer(nn.Module):
 
@@ -336,8 +333,7 @@ class UnsupervisedMaCowTransformer(nn.Module):
 
     def sample(self,shape,device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde)
-        return sample
+        return self.reverse(z_tilde)
 
 class UnsupervisedMaCowTransformer2(nn.Module):
 
@@ -358,8 +354,7 @@ class UnsupervisedMaCowTransformer2(nn.Module):
 
     def sample(self,shape,device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde)
-        return sample
+        return self.reverse(z_tilde)
 
 class UnsupervisedMaCowTransformer3(nn.Module):
 
@@ -385,8 +380,7 @@ class UnsupervisedMaCowTransformer3(nn.Module):
 
     def sample(self,shape,device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde)
-        return sample
+        return self.reverse(z_tilde)
 
 class UnsupervisedHierarchicalMixCDFTransformer(nn.Module):
 
@@ -417,8 +411,7 @@ class UnsupervisedHierarchicalMixCDFTransformer(nn.Module):
 
     def sample(self, shape, device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde)
-        return sample
+        return self.reverse(z_tilde)
 
 class MacowTransformerMultiStep(nn.Module):
     def __init__(self, config):
@@ -439,8 +432,7 @@ class MacowTransformerMultiStep(nn.Module):
 
     def sample(self, shape,xc=None, device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde,xc)
-        return sample
+        return self.reverse(z_tilde,xc)
 
 
 class SupervisedMacowTransformer(nn.Module):
@@ -477,8 +469,7 @@ class SupervisedMacowTransformer(nn.Module):
 
     def sample(self, shape,cond, device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde,cond)
-        return sample
+        return self.reverse(z_tilde,cond)
 
 
 class SupervisedHierarchicalCouplingTransformer(nn.Module):
@@ -509,8 +500,7 @@ class SupervisedHierarchicalCouplingTransformer(nn.Module):
 
     def sample(self, shape, cond, device="cpu"):
         z_tilde = torch.randn(shape).to(device)
-        sample = self.reverse(z_tilde, cond)
-        return sample
+        return self.reverse(z_tilde, cond)
 
 class UnsupervisedExtendedLeapFrogTransformer(nn.Module):
 

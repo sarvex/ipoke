@@ -50,8 +50,13 @@ class FirstStageSequenceModel(Experiment):
         datamod.setup()
         n_batches_complete_train = len(datamod.train_dataloader())
         n_batches_complete_val = len(datamod.val_dataloader())
-        n_train_batches = self.config["training"]["max_batches_per_epoch"] if n_batches_complete_train > self.config["training"]["max_batches_per_epoch"] else n_batches_complete_train
-        n_val_batches = self.config["training"]["max_val_batches"] if n_batches_complete_val > self.config["training"]["max_val_batches"] else n_batches_complete_val
+        n_train_batches = min(
+            n_batches_complete_train,
+            self.config["training"]["max_batches_per_epoch"],
+        )
+        n_val_batches = min(
+            n_batches_complete_val, self.config["training"]["max_val_batches"]
+        )
 
         if not self.is_debug:
             trainer = self.basic_trainer(limit_val_batches=n_val_batches,limit_train_batches=n_train_batches,

@@ -99,11 +99,19 @@ class ConvPokeAE(pl.LightningModule):
                                                 poke_coords=poke_coords,poke_normalized=False)
             train_grid_quiver = batches2flow_grid(flows, captions, n_logged=self.n_logged_imgs, quiver=True, img=img, poke=flows[0],
                                                   poke_coords=poke_coords,poke_normalized=False)
-            self.logger.experiment.log({f"Train Batch Cmap": wandb.Image(train_grid_cmap,
-                                                                         caption=f"Training Images @ it #{self.global_step}"),
-                                        f"Train Batch Quiver": wandb.Image(train_grid_quiver,
-                                                                           caption=f"Training Images @ it #{self.global_step}"),
-                                        }, step=self.global_step)
+            self.logger.experiment.log(
+                {
+                    "Train Batch Cmap": wandb.Image(
+                        train_grid_cmap,
+                        caption=f"Training Images @ it #{self.global_step}",
+                    ),
+                    "Train Batch Quiver": wandb.Image(
+                        train_grid_quiver,
+                        caption=f"Training Images @ it #{self.global_step}",
+                    ),
+                },
+                step=self.global_step,
+            )
 
         return loss
 

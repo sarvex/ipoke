@@ -150,9 +150,12 @@ class PokeVAE(pl.LightningModule):
             self.manual_backward(loss_dt_all,opt_dt)
             opt_dt.step()
 
-            log_dict.update({"loss_d_dt": loss_dt, f"p_true_dt": torch.sigmoid(pred_true_dt).mean(),
-                             "p_fake_dt": torch.sigmoid(pred_fake_dt).mean(),
-                             "loss_gp_dt": loss_gp_dt if self.disc_t.gp_weight > 0 else 0})
+            log_dict |= {
+                "loss_d_dt": loss_dt,
+                "p_true_dt": torch.sigmoid(pred_true_dt).mean(),
+                "p_fake_dt": torch.sigmoid(pred_fake_dt).mean(),
+                "loss_gp_dt": loss_gp_dt if self.disc_t.gp_weight > 0 else 0,
+            }
 
 
             self.log("d_t", loss_dt, logger=False, prog_bar=True, on_step=True, on_epoch=False)
@@ -173,8 +176,11 @@ class PokeVAE(pl.LightningModule):
             self.manual_backward(loss_ds, opt_ds)
             opt_ds.step()
 
-            log_dict.update({"loss_d_ds": loss_ds, f"p_true_ds": torch.sigmoid(pred_true_ds).mean(),
-                             f"p_fake_ds": torch.sigmoid(pred_fake_ds).mean()})
+            log_dict |= {
+                "loss_d_ds": loss_ds,
+                "p_true_ds": torch.sigmoid(pred_true_ds).mean(),
+                "p_fake_ds": torch.sigmoid(pred_fake_ds).mean(),
+            }
 
 
             self.log("d_s", loss_ds, logger=False, prog_bar=True, on_step=True, on_epoch=False)
@@ -192,7 +198,7 @@ class PokeVAE(pl.LightningModule):
             self.manual_backward(loss_gen_ds,opt_ds,retain_graph=True)
 
             log_loss_gen_ds = loss_gen_ds.detach()
-            log_dict.update({"loss_g_s": log_loss_gen_ds})
+            log_dict["loss_g_s"] = log_loss_gen_ds
             self.log("g_s", log_loss_gen_ds, logger=False, prog_bar=True, on_step=True, on_epoch=False)
 
 
@@ -210,7 +216,7 @@ class PokeVAE(pl.LightningModule):
             self.manual_backward(loss_temp,opt_g,retain_graph=True)
 
             log_loss_gen_dt = loss_gen_dt.detach()
-            log_dict.update({"loss_g_t": log_loss_gen_dt, "loss_fmap_t": loss_fmap_dt})
+            log_dict |= {"loss_g_t": log_loss_gen_dt, "loss_fmap_t": loss_fmap_dt}
 
             self.log("g_t", log_loss_gen_dt, logger=False, prog_bar=True, on_step=True, on_epoch=False)
 
@@ -223,12 +229,12 @@ class PokeVAE(pl.LightningModule):
         kl_loss = KL(mu, logvar)
 
         loss = self.config["training"]["w_vgg"] * vgg_loss + self.kl_weight * kl_loss \
-               + self.config["training"]["w_l1"] * l1_loss
+                   + self.config["training"]["w_l1"] * l1_loss
 
         self.manual_backward(loss,opt_g)
         opt_g.step()
 
-        log_dict = {"train/" + key: log_dict[key] for key in log_dict}
+        log_dict = {f"train/{key}": log_dict[key] for key in log_dict}
         self.log_dict(log_dict,prog_bar=False,logger=True,on_step=True,on_epoch=True)
 
         self.log("train/loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True)
@@ -257,7 +263,7 @@ class PokeVAE(pl.LightningModule):
     def forward_sample(self,batch,n_logged=1,n_samples=1):
         video_samples = []
         with torch.no_grad():
-            for n in range(n_samples):
+            for _ in range(n_samples):
                 X_hat_sample, *_ = self(batch, sample_prior=True)
                 video_samples.append(X_hat_sample[:n_logged])
 
@@ -393,7 +399,7 @@ class PokeVAE(pl.LightningModule):
 
         X_hat = []
 
-        for i in range(X.size(1) - 1):
+        for _ in range(X.size(1) - 1):
             hidden = self.rnn(in_rnn, hidden)
 
             reaction = self.gen([hidden[-1]], start_frame, del_shape=True)
@@ -449,14 +455,11 @@ class PokeVAE(pl.LightningModule):
         samples = []
 
         # start_frame = batch['images'][:,0][:,None]
-        for n in tqdm(range(n_samples),desc=f'Generating {n_samples} for current data point...'):
+        for _ in tqdm(range(n_samples),desc=f'Generating {n_samples} for current data point...'):
             sample, *_ = self(batch, sample_prior=True)
             samples.append(sample)
 
-        samples = torch.stack(samples, dim=1)
-        # self.test_aggr.append(samples)
-
-        return samples
+        return torch.stack(samples, dim=1)
 
     def test_step_end(self, out_step):
         return out_step
@@ -468,7 +471,7 @@ class PokeVAE(pl.LightningModule):
         # start_frame = batch['images'][:, 0][:, None]
         samples = []
 
-        for n in range(n_test_samples):
+        for _ in range(n_test_samples):
             sample, *_ = self.forward_sample(batch,self.n_test_samples)
             samples.append(sample)
 
@@ -506,7 +509,7 @@ class PokeVAE(pl.LightningModule):
 
             for i,sample in enumerate(samples_list):
                 if i==0:
-                    savepath = os.path.join(savedir, f'groundtruth.mp4')
+                    savepath = os.path.join(savedir, 'groundtruth.mp4')
                 else:
                     savepath = os.path.join(savedir,f'sample_{i}.mp4')
                 save_video(sample,savepath,fps=3)
@@ -524,8 +527,7 @@ class PokeVAE(pl.LightningModule):
             elif self.test_mode == 'kps_acc':
                 raise NotImplementedError()
             elif self.test_mode == 'diversity':
-                samples = self._test_step_diversity(batch,batch_id)
-                return samples
+                return self._test_step_diversity(batch,batch_id)
             else:
                 raise ValueError(f'The specified test_mode is "{self.test_mode}", which is invalid...')
 

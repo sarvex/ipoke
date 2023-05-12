@@ -320,10 +320,7 @@ class NICEConvBlock(nn.Module):
             out = self.norm1(out)
         out = self.activation(out)
         # conv2
-        if self.attention:
-            out = self.conv2(out,self.pos_emb)
-        else:
-            out = self.conv2(out)
+        out = self.conv2(out,self.pos_emb) if self.attention else self.conv2(out)
         out = self.dp(out)
         if self.norm2 is not None:
             out = self.norm2(out)
@@ -399,9 +396,7 @@ class GlobalAttnCondNet(nn.Module):
         # [batch, height, width]
         attn_weights = torch.einsum('bd,bdhw->bhw', h, key)
         attn_weights = F.softmax(attn_weights.view(bs, -1), dim=-1).view(bs, height, width)
-        # [batch, out_dim, height, width]
-        out = h.view(bs, dim, 1, 1) * attn_weights.unsqueeze(1)
-        return out
+        return h.view(bs, dim, 1, 1) * attn_weights.unsqueeze(1)
 
 
 class MCFBlock(nn.Module):
@@ -455,11 +450,15 @@ class ShiftedConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1), dilation=1, groups=1, bias=True, order='A'):
         assert len(stride) == 2
         assert len(kernel_size) == 2
-        assert order in {'A', 'B', 'C', 'D'}, 'unknown order: {}'.format(order)
+        assert order in {'A', 'B', 'C', 'D'}, f'unknown order: {order}'
         if order in {'A', 'B'}:
-            assert kernel_size[1] % 2 == 1, 'kernel width cannot be even number: {}'.format(kernel_size)
+            assert (
+                kernel_size[1] % 2 == 1
+            ), f'kernel width cannot be even number: {kernel_size}'
         else:
-            assert kernel_size[0] % 2 == 1, 'kernel height cannot be even number: {}'.format(kernel_size)
+            assert (
+                kernel_size[0] % 2 == 1
+            ), f'kernel height cannot be even number: {kernel_size}'
 
         self.order = order
         if order == 'A':
@@ -484,7 +483,7 @@ class ShiftedConv2d(nn.Conv2d):
             self.cut = (0, 0, 1, 0)
         else:
             self.shift_padding = None
-            raise ValueError('unknown order: {}'.format(order))
+            raise ValueError(f'unknown order: {order}')
 
         super(ShiftedConv2d, self).__init__(in_channels, out_channels, kernel_size, padding=0,
                                             stride=stride, dilation=dilation, groups=groups, bias=bias)

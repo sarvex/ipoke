@@ -84,7 +84,7 @@ class PokeMotionModel(pl.LightningModule):
 
 
         self.FVD = FVD(n_samples=self.config['logging']['n_fvd_samples'] if 'n_fvd_samples' in  self.config['logging'] else 1000)
-        if self.test_mode == 'none' or self.test_mode=='accuracy':
+        if self.test_mode in ['none', 'accuracy']:
             self.lpips_metric = LPIPS()
             self.ssim = SSIM_custom()
             self.psnr = PSNR_custom()
@@ -99,13 +99,13 @@ class PokeMotionModel(pl.LightningModule):
             assert not self.embed_poke_and_image
         if self.use_cond:
             self.config["architecture"]["h_channels"] = self.conditioner_config["architecture"]["nf_max"] + \
-                                                                self.poke_emb_config["architecture"]["nf_max"]
+                                                                    self.poke_emb_config["architecture"]["nf_max"]
         else:
             self.config["architecture"]["h_channels"] =self.poke_emb_config["architecture"]["nf_max"]
 
 
         self.config["architecture"]["flow_mid_channels"] = int(config["architecture"]["flow_mid_channels_factor"] * \
-                                                               self.config["architecture"]["flow_in_channels"])
+                                                                   self.config["architecture"]["flow_in_channels"])
 
         self.config['architecture'].update({'ssize': self.poke_emb_config['architecture']['min_spatial_size']})
         model = MacowTransformerMultiStep if 'multistack' in self.config['architecture'] and self.config['architecture']['multistack'] else SupervisedMacowTransformer
@@ -115,17 +115,17 @@ class PokeMotionModel(pl.LightningModule):
         if self.adapt_poke_emb_ssize:
             factor = float(self.first_stage_config['architecture']['min_spatial_size']) / self.poke_emb_config['architecture']['min_spatial_size']
             self.conv_adapt_poke_emb = nn.Conv2d(self.poke_emb_config['architecture']['nf_max'],self.poke_emb_config['architecture']['nf_max'],stride=int(factor),kernel_size=3,padding=1) if factor > 1 else \
-                Conv2dTransposeBlock(self.poke_emb_config['architecture']['nf_max'],self.poke_emb_config['architecture']['nf_max'],ks=3,st=int(1./factor),padding=1,norm='group') #,
+                    Conv2dTransposeBlock(self.poke_emb_config['architecture']['nf_max'],self.poke_emb_config['architecture']['nf_max'],ks=3,st=int(1./factor),padding=1,norm='group') #,
 
         self.adapt_cond_ssize = self.use_cond and self.conditioner_config['architecture']['min_spatial_size'] != \
-                                    self.first_stage_config['architecture']['min_spatial_size']
+                                        self.first_stage_config['architecture']['min_spatial_size']
         if self.adapt_cond_ssize:
             factor = float(self.first_stage_config['architecture']['min_spatial_size']) / \
-                     self.conditioner_config['architecture']['min_spatial_size']
+                         self.conditioner_config['architecture']['min_spatial_size']
             self.conv_adapt_cond = nn.Conv2d(self.conditioner_config['architecture']['nf_max'],
                                                  self.conditioner_config['architecture']['nf_max'],
                                                  stride=int(factor),kernel_size=3,padding=1) if factor < 1 else \
-                Conv2dTransposeBlock(self.conditioner_config['architecture']['nf_max'],
+                    Conv2dTransposeBlock(self.conditioner_config['architecture']['nf_max'],
                                    self.conditioner_config['architecture']['nf_max'], st=int(factor),ks=3,padding=1)
 
         self.flow = model(self.config["architecture"])
@@ -201,7 +201,6 @@ class PokeMotionModel(pl.LightningModule):
     def __initialize_conditioner(self):
         dic = conditioner_models[self.config['conditioner']['name']]
         model_name = dic['model_name']
-        conditioner_ckpt = dic['ckpt']
         conditioner_config = path.join(self.config["general"]["base_dir"], "img_encoder", "config",
                                        model_name, "config.yaml")
 
@@ -211,6 +210,7 @@ class PokeMotionModel(pl.LightningModule):
 
         self.conditioner = FirstStageWrapper(self.conditioner_config)
         if 'restart' in self.config['general'] and not self.config["general"]["restart"]:
+            conditioner_ckpt = dic['ckpt']
             state_dict = torch.load(conditioner_ckpt, map_location="cpu")
             # remove keys from checkpoint which are not required
             state_dict = {key: state_dict["state_dict"][key] for key in state_dict["state_dict"] if
@@ -307,11 +307,7 @@ class PokeMotionModel(pl.LightningModule):
                 input_augment = self.scale_augment[None,:,None,None] * input_augment + self.shift_augment[None,:,None,None]
                 flow_input = torch.cat([flow_input,input_augment],dim=1)
 
-        if self.use_cond:
-            cond = torch.cat([cond, poke_emb], dim=1)
-        else:
-            cond = poke_emb
-
+        cond = torch.cat([cond, poke_emb], dim=1) if self.use_cond else poke_emb
         return flow_input, cond
 
     def on_train_epoch_start(self):
@@ -372,7 +368,7 @@ class PokeMotionModel(pl.LightningModule):
                 in_rnn = motion
             if length is None:
                 length = X.size(1) - 1
-            for i in range(length):
+            for _ in range(length):
                 hidden = self.first_stage_model.rnn(in_rnn, hidden)
 
                 reaction = self.first_stage_model.gen([hidden[-1]], start_frame, del_shape=True)
@@ -390,7 +386,7 @@ class PokeMotionModel(pl.LightningModule):
             x = scene
 
             X_hat = []
-            for i in range(X.size(1) - 1):
+            for _ in range(X.size(1) - 1):
                 hidden = self.first_stage_model.rnn(x, hidden)
                 x = self.first_stage_model.post_hidden(hidden[-1])
                 reaction = self.first_stage_model.gen([x], del_shape=True)
@@ -550,10 +546,18 @@ class PokeMotionModel(pl.LightningModule):
                                                          n_logged=n_logged_vids,
                                                          poke_coords=poke_coords)
             self.logger.experiment.history._step = self.global_step
-            self.logger.experiment.log({f"Animated Flow Grid val set": wandb.Video(animated_grid,
-                                                                                                caption=f"Animated grid val #{batch_idx}",
-                                                                                                fps=3,format="mp4")},
-                                       step=self.global_step, commit=False)
+            self.logger.experiment.log(
+                {
+                    "Animated Flow Grid val set": wandb.Video(
+                        animated_grid,
+                        caption=f"Animated grid val #{batch_idx}",
+                        fps=3,
+                        format="mp4",
+                    )
+                },
+                step=self.global_step,
+                commit=False,
+            )
 
     def validation_epoch_end(self, outputs):
         #fvd_score = self.FVD.compute()
@@ -878,8 +882,8 @@ class PokeMotionModel(pl.LightningModule):
 
             for i, sample in enumerate(samples_list):
                 if i == 0:
-                    savepath = os.path.join(savedir, f'groundtruth.mp4')
-                    savepath_en = os.path.join(savedir, f'groundtruth_enrollment.png')
+                    savepath = os.path.join(savedir, 'groundtruth.mp4')
+                    savepath_en = os.path.join(savedir, 'groundtruth_enrollment.png')
                 else:
                     savepath = os.path.join(savedir, f'sample_{i}.mp4')
                     savepath_en = os.path.join(savedir, f'sample_{i}_enrollment.png')
@@ -933,8 +937,8 @@ class PokeMotionModel(pl.LightningModule):
 
             for i,sample in enumerate(samples_list):
                 if i==0:
-                    savepath = os.path.join(savedir, f'groundtruth.mp4')
-                    savepath_en = os.path.join(savedir, f'groundtruth_enrollment.png')
+                    savepath = os.path.join(savedir, 'groundtruth.mp4')
+                    savepath_en = os.path.join(savedir, 'groundtruth_enrollment.png')
                 else:
                     savepath = os.path.join(savedir,f'sample_{i}.mp4')
                     savepath_en = os.path.join(savedir, f'sample_{i}_enrollment.png')

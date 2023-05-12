@@ -18,11 +18,7 @@ from torch import nn
 
 
 def get_member(model, name):
-    if isinstance(model, nn.DataParallel):
-        module = model.module
-    else:
-        module = model
-
+    module = model.module if isinstance(model, nn.DataParallel) else model
     return getattr(module, name)
 
 def preprocess_image(img,swap_channels=False):
@@ -57,7 +53,7 @@ class LoggingParent:
                 found = True
                 continue
             mypath = "/".join(mypath.split("/")[:-1])
-        project_root = mypath+"/"
+        project_root = f"{mypath}/"
         # Put it together
         file = inspect.getfile(self.__class__).replace(project_root, "").replace("/", ".").split(".py")[0]
         cls = str(self.__class__)[8:-2]
@@ -107,7 +103,7 @@ def save_model_to_disk(path, models, epoch):
         tmp_path = path
         if not os.path.exists(path):
             os.makedirs(path)
-        tmp_path = tmp_path + f"model_{i}-epoch{epoch}"
+        tmp_path = f"{tmp_path}model_{i}-epoch{epoch}"
         torch.save(model.state_dict(), tmp_path)
 
 
@@ -134,13 +130,10 @@ def parallel_data_prefetch(
     elif isinstance(data, abc.Iterable) and not isinstance(data,tuple):
         if isinstance(data, dict):
             print(
-                f'WARNING:"data" argument passed to parallel_data_prefetch is a dict: Using only its values and disregarding keys.'
+                'WARNING:"data" argument passed to parallel_data_prefetch is a dict: Using only its values and disregarding keys.'
             )
             data = list(data.values())
-        if target_data_type == "ndarray":
-            data = np.asarray(data)
-        else:
-            data = list(data)
+        data = np.asarray(data) if target_data_type == "ndarray" else list(data)
     elif isinstance(data,tuple):
         static_args = data[1:]
         data = data[0]
@@ -169,9 +162,14 @@ def parallel_data_prefetch(
             else int(len(data) / n_proc)
         )
         arguments = [
-            [func, Q, (part,) if static_args is None else (part,*static_args), i]
+            [
+                func,
+                Q,
+                (part,) if static_args is None else (part, *static_args),
+                i,
+            ]
             for i, part in enumerate(
-                [data[i : i + step] for i in range(0, len(data), step)]
+                data[i : i + step] for i in range(0, len(data), step)
             )
         ]
 
@@ -182,7 +180,7 @@ def parallel_data_prefetch(
         processes += [p]
 
     # start processes
-    print(f"Start prefetching...")
+    print("Start prefetching...")
     import time
 
     start = time.time()

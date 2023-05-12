@@ -53,8 +53,8 @@ def get_ckpt_path(name, root=None, check=False):
     cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
     root = root if root is not None else os.path.join(cachedir, "autoencoders")
     path = os.path.join(root, CKPT_MAP[name])
-    if not os.path.exists(path) or (check and not md5_hash(path) == MD5_MAP[name]):
-        print("Downloading {} model from {} to {}".format(name, URL_MAP[name], path))
+    if not os.path.exists(path) or check and md5_hash(path) != MD5_MAP[name]:
+        print(f"Downloading {name} model from {URL_MAP[name]} to {path}")
         download(URL_MAP[name], path)
         md5 = md5_hash(path)
         assert md5 == MD5_MAP[name], md5

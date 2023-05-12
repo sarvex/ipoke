@@ -33,9 +33,7 @@ class PoseNetWrapper(nn.Module):
     def prepocess_image(self,x):
         out = self.resize(x)
         out = (out + 1.) / 2
-        out = self.normalize(out)
-
-        return out
+        return self.normalize(out)
 
     def forward(self,x):
         self.posenet.eval()

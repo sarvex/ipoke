@@ -194,9 +194,12 @@ class MotionModel(pl.LightningModule):
             self.manual_backward(loss_dt_all,opt_dt)
             opt_dt.step()
 
-            log_dict.update({"loss_d_dt": loss_dt, f"p_true_dt": torch.sigmoid(pred_true_dt).mean(),
-                             "p_fake_dt": torch.sigmoid(pred_fake_dt).mean(),
-                             "loss_gp_dt": loss_gp_dt if self.disc_t.gp_weight > 0 else 0})
+            log_dict |= {
+                "loss_d_dt": loss_dt,
+                "p_true_dt": torch.sigmoid(pred_true_dt).mean(),
+                "p_fake_dt": torch.sigmoid(pred_fake_dt).mean(),
+                "loss_gp_dt": loss_gp_dt if self.disc_t.gp_weight > 0 else 0,
+            }
 
 
             self.log("d_t", loss_dt, logger=False, prog_bar=True, on_step=True, on_epoch=False)
@@ -217,8 +220,11 @@ class MotionModel(pl.LightningModule):
             self.manual_backward(loss_ds, opt_ds)
             opt_ds.step()
 
-            log_dict.update({"loss_d_ds": loss_ds, f"p_true_ds": torch.sigmoid(pred_true_ds).mean(),
-                             f"p_fake_ds": torch.sigmoid(pred_fake_ds).mean()})
+            log_dict |= {
+                "loss_d_ds": loss_ds,
+                "p_true_ds": torch.sigmoid(pred_true_ds).mean(),
+                "p_fake_ds": torch.sigmoid(pred_fake_ds).mean(),
+            }
 
 
             self.log("d_s", loss_ds, logger=False, prog_bar=True, on_step=True, on_epoch=False)
@@ -236,7 +242,7 @@ class MotionModel(pl.LightningModule):
             self.manual_backward(loss_gen_ds,opt_ds,retain_graph=True)
 
             log_loss_gen_ds = loss_gen_ds.detach()
-            log_dict.update({"loss_g_s": log_loss_gen_ds})
+            log_dict["loss_g_s"] = log_loss_gen_ds
             self.log("g_s", log_loss_gen_ds, logger=False, prog_bar=True, on_step=True, on_epoch=False)
 
 
@@ -254,7 +260,7 @@ class MotionModel(pl.LightningModule):
             self.manual_backward(loss_temp,opt_g,retain_graph=True)
 
             log_loss_gen_dt = loss_gen_dt.detach()
-            log_dict.update({"loss_g_t": log_loss_gen_dt, "loss_fmap_t": loss_fmap_dt})
+            log_dict |= {"loss_g_t": log_loss_gen_dt, "loss_fmap_t": loss_fmap_dt}
 
             self.log("g_t", log_loss_gen_dt, logger=False, prog_bar=True, on_step=True, on_epoch=False)
 
@@ -263,19 +269,15 @@ class MotionModel(pl.LightningModule):
         vgg_loss = self.vgg_loss(X[:, 1:].reshape(-1, *X.shape[2:]).contiguous(), X_hat.reshape(-1, *X_hat.shape[2:]).contiguous()).mean()
 
         l1_loss = torch.mean(torch.abs(X[:, 1:] - X_hat))
-        if self.enc_motion.be_determinstic:
-            kl_loss = 0.
-        else:
-            kl_loss = KL(mu, logvar)
-
+        kl_loss = 0. if self.enc_motion.be_determinstic else KL(mu, logvar)
         loss = self.config["training"]["w_vgg"] * vgg_loss + self.config["training"]["w_kl"] * kl_loss \
-               + self.config["training"]["w_l1"] * l1_loss
+                   + self.config["training"]["w_l1"] * l1_loss
 
 
         self.manual_backward(loss,opt_g)
         opt_g.step()
 
-        log_dict = {"train/" + key: log_dict[key] for key in log_dict}
+        log_dict = {f"train/{key}": log_dict[key] for key in log_dict}
         self.log_dict(log_dict,prog_bar=False,logger=True,on_step=True,on_epoch=True)
 
         self.log("train/loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True)
@@ -431,7 +433,7 @@ class RNNMotionModel(MotionModel):
         x = scene
 
         X_hat = []
-        for i in range(X.size(1)-1):
+        for _ in range(X.size(1)-1):
             hidden = self.rnn(x,hidden)
             x = self.post_hidden(hidden[-1])
             reaction = self.gen([x],del_shape=True)

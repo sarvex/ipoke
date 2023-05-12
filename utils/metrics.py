@@ -53,9 +53,7 @@ class metric_vgg16(torch.nn.Module):
         h = self.slice5(h)
         h_relu5_3 = h
         vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3', 'relu5_3'])
-        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
-
-        return out
+        return vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
 
 def normalize_activation(x, eps=1e-10):
     norm_factor = torch.sqrt(torch.sum(x ** 2, dim=0, keepdim=True))
@@ -98,8 +96,7 @@ def compute_div_score(exmpls,feature_extractor,device:torch.device=None):
                             #               normalize_activation(f[k])).cpu().numpy().mean())
 
 
-    divl = np.asarray(divl).mean()
-    return divl
+    return np.asarray(divl).mean()
 
 def compute_div_score_mse(exmpls,device:torch.device=None):
     n_ex, n_samples, seq_length, c, h, w = exmpls.shape
@@ -120,8 +117,7 @@ def compute_div_score_mse(exmpls,device:torch.device=None):
                         divl.append(mse)
 
 
-    divl = np.asarray(divl).mean()
-    return divl
+    return np.asarray(divl).mean()
 
 
 def compute_div_score_lpips(exmpls,device):
@@ -140,8 +136,7 @@ def compute_div_score_lpips(exmpls,device):
                         diff = measure(video[j],video[k]).cpu().numpy()
                         divl.append(diff)
 
-    divl = np.asarray(divl).mean()
-    return divl
+    return np.asarray(divl).mean()
 
 
 
@@ -173,35 +168,35 @@ class SampleMetric(Metric):
         :param kps_target: groundtruth keypoints of video sequence shape: (batch, 1 , n_frames ,channels, height, width)
         :return:
         """
-        if self.n_samples.int() < self.n_max_samples:
+        if self.n_samples.int() >= self.n_max_samples:
+            return
+        bs,ns,s,c,h,w = pred.shape
+        #all_target = torch.cat([target]*ns,dim=1)
+        proc_vals=[]
+        # for large amount of data, avoid gpu running out of memory
+        for p,t in zip(pred,target):
+            t = torch.cat([t] * ns, dim=0)
+            if self.reduction:
+                act_val = self.measure(p.reshape(-1, c, h, w).type_as(target), t.reshape(-1, c, h, w)).squeeze()
+            else:
+                act_val = self.measure(p.reshape(-1, c, h, w).type_as(target), t.reshape(-1, c, h, w))
+                act_val = act_val.mean(dim=[1,2,3])
+            proc_vals.append(act_val.cpu())
 
-            bs,ns,s,c,h,w = pred.shape
-            #all_target = torch.cat([target]*ns,dim=1)
-            proc_vals=[]
-            # for large amount of data, avoid gpu running out of memory
-            for p,t in zip(pred,target):
-                t = torch.cat([t] * ns, dim=0)
-                if self.reduction:
-                    act_val = self.measure(p.reshape(-1, c, h, w).type_as(target), t.reshape(-1, c, h, w)).squeeze()
-                else:
-                    act_val = self.measure(p.reshape(-1, c, h, w).type_as(target), t.reshape(-1, c, h, w))
-                    act_val = act_val.mean(dim=[1,2,3])
-                proc_vals.append(act_val.cpu())
+        # batch dimension first
+        val_all = torch.stack(proc_vals,dim=0)
+        val_global_samples = val_all.reshape(bs,ns,s)
+        min_ids = torch.argmin(val_global_samples.mean(-1),1)
 
-            # batch dimension first
-            val_all = torch.stack(proc_vals,dim=0)
-            val_global_samples = val_all.reshape(bs,ns,s)
-            min_ids = torch.argmin(val_global_samples.mean(-1),1)
-
-            min_ids = min_ids[:,None].repeat(1,val_global_samples.size(2))[:,None]
-            val_nn_per_frame = val_global_samples.gather(1,min_ids).squeeze(1).cpu()
-            std_per_frame = val_global_samples.std(dim=1).cpu()
-            mean_per_frame = val_global_samples.mean(dim=1).cpu()
-            self.nn_val_per_frame.append(val_nn_per_frame)
-            self.std_per_frame.append(std_per_frame)
-            self.mean_per_frame.append(mean_per_frame)
-            self.n_samples += pred.size(0)
-            self.val += val_nn_per_frame.mean(1).sum()
+        min_ids = min_ids[:,None].repeat(1,val_global_samples.size(2))[:,None]
+        val_nn_per_frame = val_global_samples.gather(1,min_ids).squeeze(1).cpu()
+        std_per_frame = val_global_samples.std(dim=1).cpu()
+        mean_per_frame = val_global_samples.mean(dim=1).cpu()
+        self.nn_val_per_frame.append(val_nn_per_frame)
+        self.std_per_frame.append(std_per_frame)
+        self.mean_per_frame.append(mean_per_frame)
+        self.n_samples += pred.size(0)
+        self.val += val_nn_per_frame.mean(1).sum()
 
     def compute(self):
         meanval = self.val.float() / self.n_samples
@@ -312,12 +307,17 @@ class KPSMetric(Metric):
         if self.savedir is None:
             nn_mse_err_per_frame = torch.cat(self.nn_err_per_frame, dim=0).mean(0).numpy()
             mean_per_frame_err = torch.cat(self.mean_per_frame,dim=0).mean(0).numpy()
-            data_dict_nn = {'NN MSE': nn_mse_err_per_frame,
-                            'Mean MSE per Frame':mean_per_frame_err,
-                            'Std per Frame': torch.cat(self.std_per_frame, dim=0).mean(0).numpy(),
-                            'Time': np.arange(nn_mse_err_per_frame.shape[0]),
-                            'Number of Pokes': np.full_like(nn_mse_err_per_frame,n_pokes,dtype=int)}
-            return data_dict_nn
+            return {
+                'NN MSE': nn_mse_err_per_frame,
+                'Mean MSE per Frame': mean_per_frame_err,
+                'Std per Frame': torch.cat(self.std_per_frame, dim=0)
+                .mean(0)
+                .numpy(),
+                'Time': np.arange(nn_mse_err_per_frame.shape[0]),
+                'Number of Pokes': np.full_like(
+                    nn_mse_err_per_frame, n_pokes, dtype=int
+                ),
+            }
         else:
             self.logger.info(f'Saving plots and related data to "{self.savedir}"')
             mean_err_per_frame=torch.cat(self.nn_err_per_frame,dim=0)
@@ -564,11 +564,7 @@ class FIDInceptionModel(nn.Module):
 
     def forward(self, x):
         x = self.resize(x)
-        if self.normalize_range:
-            # normalize in between 0 and 1
-            x = (x + 1.) / 2.
-        else:
-            x = x.to(torch.float) / 255.
+        x = (x + 1.) / 2. if self.normalize_range else x.to(torch.float) / 255.
         # normalize to demanded values
         x = (x - self.mean) / self.std
 
@@ -579,7 +575,7 @@ class FIDInceptionModel(nn.Module):
             x = submodule(x)
             if name == "Mixed_7c":
                 break
-            elif name == "Conv2d_4a_3x3" or name == "Conv2d_2b_3x3":
+            elif name in ["Conv2d_4a_3x3", "Conv2d_2b_3x3"]:
                 x = F.avg_pool2d(x, kernel_size=3, stride=2)
 
         out = F.adaptive_avg_pool2d(x, (1, 1))
@@ -669,7 +665,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     if np.iscomplexobj(covmean):
         if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
             m = np.max(np.abs(covmean.imag))
-            raise ValueError('Imaginary component {}'.format(m))
+            raise ValueError(f'Imaginary component {m}')
         covmean = covmean.real
 
     tr_covmean = np.trace(covmean)
@@ -700,15 +696,7 @@ def get_activations(data, model, batch_size=50, cuda=False, verbose=False):
     model.eval()
     n_samples = data.size(0)
 
-    if n_samples % batch_size != 0:
-        pass
-        # print(('Warning: number of images is not a multiple of the '
-        #        'batch size. Some samples are going to be ignored.'))
-    if batch_size > n_samples:
-        # print(('Warning: batch size is bigger than the data size. '
-        #        'Setting batch size to data size'))
-        batch_size = n_samples
-
+    batch_size = min(batch_size, n_samples)
     n_batches = n_samples // batch_size
     n_used_imgs = n_batches * batch_size
 
@@ -775,9 +763,7 @@ def calculate_FVD(model, data_gen, data_orig, batch_size, cuda=True):
     data_gen, data_orig = preprocess(data_gen, data_orig)
     m1, s1 = calculate_activation_statistics(data_gen, model, batch_size, cuda)
     m2, s2 = calculate_activation_statistics(data_orig, model, batch_size, cuda)
-    FVD = calculate_frechet_distance(m1, s1, m2, s2)
-
-    return FVD
+    return calculate_frechet_distance(m1, s1, m2, s2)
 
 def compute_activations(model, data_gen, data_orig, batch_size, cuda=True):
     data_gen, data_orig = preprocess(data_gen, data_orig)
@@ -843,11 +829,8 @@ def get_padding_shape(filter_shape, stride, mod=0):
 
 
 def simplify_padding(padding_shapes):
-    all_same = True
     padding_init = padding_shapes[0]
-    for pad in padding_shapes[1:]:
-        if pad != padding_init:
-            all_same = False
+    all_same = all(pad == padding_init for pad in padding_shapes[1:])
     return all_same, padding_init
 
 
@@ -879,8 +862,7 @@ class Unit3Dpy(torch.nn.Module):
         elif padding == 'VALID':
             padding_shape = 0
         else:
-            raise ValueError(
-                'padding should be in [VALID|SAME] but got {}'.format(padding))
+            raise ValueError(f'padding should be in [VALID|SAME] but got {padding}')
 
         if padding == 'SAME':
             if not simplify_pad:
@@ -908,8 +890,7 @@ class Unit3Dpy(torch.nn.Module):
                 stride=stride,
                 bias=use_bias)
         else:
-            raise ValueError(
-                'padding should be in [VALID|SAME] but got {}'.format(padding))
+            raise ValueError(f'padding should be in [VALID|SAME] but got {padding}')
 
         if self.use_bn:
             # This is not strictly the correct map between epsilons in keras and
@@ -956,8 +937,7 @@ class MaxPool3dTFPadding(torch.nn.Module):
         pad_idx = inp.shape[2] % self.stride[0]
         pad_op = self.pads[pad_idx]
         inp = pad_op(inp)
-        out = self.pool(inp)
-        return out
+        return self.pool(inp)
 
 
 class Mixed(torch.nn.Module):
@@ -993,8 +973,7 @@ class Mixed(torch.nn.Module):
         out_1 = self.branch_1(inp)
         out_2 = self.branch_2(inp)
         out_3 = self.branch_3(inp)
-        out = torch.cat((out_0, out_1, out_2, out_3), 1)
-        return out
+        return torch.cat((out_0, out_1, out_2, out_3), 1)
 
 class I3D(torch.nn.Module):
     def __init__(self,
@@ -1011,8 +990,7 @@ class I3D(torch.nn.Module):
         elif modality == 'flow':
             in_channels = 2
         else:
-            raise ValueError(
-                '{} not among known modalities [rgb|flow]'.format(modality))
+            raise ValueError(f'{modality} not among known modalities [rgb|flow]')
         self.modality = modality
 
         conv3d_1a_7x7 = Unit3Dpy(

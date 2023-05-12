@@ -49,8 +49,13 @@ class SecondStageVideoModel(Experiment):
         datamod.setup()
         n_batches_complete_train = len(datamod.train_dataloader())
         n_batches_complete_val = len(datamod.val_dataloader())
-        n_train_batches = self.config["training"]["max_batches_per_epoch"] if n_batches_complete_train > self.config["training"]["max_batches_per_epoch"] else n_batches_complete_train
-        n_val_batches = self.config["training"]["max_val_batches"] if n_batches_complete_val > self.config["training"]["max_val_batches"] else n_batches_complete_val
+        n_train_batches = min(
+            n_batches_complete_train,
+            self.config["training"]["max_batches_per_epoch"],
+        )
+        n_val_batches = min(
+            n_batches_complete_val, self.config["training"]["max_val_batches"]
+        )
 
         prec = 16 if 'mixed_prec' in self.config['training'] and self.config['training']['mixed_prec'] else 32
         self.basic_trainer = partial(self.basic_trainer,precision=prec)
@@ -81,7 +86,7 @@ class SecondStageVideoModel(Experiment):
         self.config['data']['zero_poke'] = False
         self.config['data']['test_batch_size'] = self.config['testing']['test_batch_size']
         self.config['data']['filter'] = 'all'
-        if self.config['general']['test'] == 'accuracy' or self.config['general']['test'] == 'diversity':
+        if self.config['general']['test'] in ['accuracy', 'diversity']:
             n_test_batches = int(
                 math.ceil(self.config['testing']['n_samples_metrics'] / self.config['data']['test_batch_size']))
             max_n_pokes = deepcopy(self.config['testing']['n_test_pokes'])
@@ -94,7 +99,7 @@ class SecondStageVideoModel(Experiment):
             else:
                 self.ae.console_logger.info('***************************COMPUTING METRICS FOR EACH INDIVIDUAL NUMBER OF POKES******************************************')
                 self.config['data']['fix_n_pokes'] = True
-                for count,n_pokes in enumerate(tqdm(reversed(range(max_n_pokes)),desc='Conducting metrics experiment....')):
+                for n_pokes in tqdm(reversed(range(max_n_pokes)),desc='Conducting metrics experiment....'):
                     self.config['data']['n_pokes'] = n_pokes +1
                     self.ae.console_logger.info(f'Instantiating {n_pokes + 1} pokes...')
 
@@ -130,33 +135,37 @@ class SecondStageVideoModel(Experiment):
                     make_errorbar_plot(fig_savename,df_kps,xid='Time',yid='Mean MSE per Frame',
                                        hueid='Number of Pokes',varid='Std per Frame')
                     df_kps_group = df_kps.groupby('Time', as_index=False).mean()
-                    df_kps_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_kps_group.csv'))
+                    df_kps_group.to_csv(
+                        os.path.join(
+                            self.ae.metrics_dir, 'plot_data_kps_group.csv'
+                        )
+                    )
 
-                # image based metrics which can be reported for all datasets
-                # fig_savename = os.path.join(self.ae.metrics_dir, f'ssim_plot_{n_samples_per_poke}samples-{postfix}.pdf')
-                # df_ssim.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_{n_samples_per_poke}pokes_ssim-{postfix}.csv'))
-                # make_errorbar_plot(fig_savename, df_ssim, xid='Time', yid='Mean SSIM per Frame',
-                #                    hueid='Number of Pokes',varid='Std per Frame')
-                #
-                # fig_savename = os.path.join(self.ae.metrics_dir, f'lpips_plot_{n_samples_per_poke}samples-{postfix}.pdf')
-                # df_lpips.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_{n_samples_per_poke}pokes_lpips-{postfix}.csv'))
-                # make_errorbar_plot(fig_savename, df_lpips, xid='Time', yid='Mean LPIPS per Frame',
-                #                    hueid='Number of Pokes', varid='Std per Frame')
+                        # image based metrics which can be reported for all datasets
+                        # fig_savename = os.path.join(self.ae.metrics_dir, f'ssim_plot_{n_samples_per_poke}samples-{postfix}.pdf')
+                        # df_ssim.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_{n_samples_per_poke}pokes_ssim-{postfix}.csv'))
+                        # make_errorbar_plot(fig_savename, df_ssim, xid='Time', yid='Mean SSIM per Frame',
+                        #                    hueid='Number of Pokes',varid='Std per Frame')
+                        #
+                        # fig_savename = os.path.join(self.ae.metrics_dir, f'lpips_plot_{n_samples_per_poke}samples-{postfix}.pdf')
+                        # df_lpips.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_{n_samples_per_poke}pokes_lpips-{postfix}.csv'))
+                        # make_errorbar_plot(fig_savename, df_lpips, xid='Time', yid='Mean LPIPS per Frame',
+                        #                    hueid='Number of Pokes', varid='Std per Frame')
 
-                # fig_savename = os.path.join(self.ae.metrics_dir, f'psnr_plot_{n_samples_per_poke}samples.pdf')
-                # df_psnr.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_{n_samples_per_poke}pokes_psnr.csv'))
-                # make_errorbar_plot(fig_savename, df_psnr, xid='Time', yid='Mean PSNR per Frame',
-                #                    hueid='Number of Pokes', varid='Std per Frame')
-                #aggregate for all pokes
+                        # fig_savename = os.path.join(self.ae.metrics_dir, f'psnr_plot_{n_samples_per_poke}samples.pdf')
+                        # df_psnr.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_{n_samples_per_poke}pokes_psnr.csv'))
+                        # make_errorbar_plot(fig_savename, df_psnr, xid='Time', yid='Mean PSNR per Frame',
+                        #                    hueid='Number of Pokes', varid='Std per Frame')
+                        #aggregate for all pokes
 
-                # df_ssim_group = df_ssim.groupby('Time', as_index=False).mean()
-                # df_ssim_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_ssim_group.csv'))
-                # self.ae.console_logger.info(f'Mean ssim value from sample metric is {df_ssim_group["Mean SSIM per Frame"]}')
-                # # df_psnr_group=df_psnr.groupby('Number of Pokes', as_index=False).mean()
-                # # df_psnr_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_psnr_group.csv'))
-                # df_lpips_group = df_lpips.groupby('Time', as_index=False).mean()
-                # df_lpips_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_lpips_group.csv'))
-                # self.ae.console_logger.info(f'Mean lpips value from sample metric is {df_lpips_group["Mean LPIPS per Frame"]}')
+                        # df_ssim_group = df_ssim.groupby('Time', as_index=False).mean()
+                        # df_ssim_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_ssim_group.csv'))
+                        # self.ae.console_logger.info(f'Mean ssim value from sample metric is {df_ssim_group["Mean SSIM per Frame"]}')
+                        # # df_psnr_group=df_psnr.groupby('Number of Pokes', as_index=False).mean()
+                        # # df_psnr_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_psnr_group.csv'))
+                        # df_lpips_group = df_lpips.groupby('Time', as_index=False).mean()
+                        # df_lpips_group.to_csv(os.path.join(self.ae.metrics_dir, f'plot_data_lpips_group.csv'))
+                        # self.ae.console_logger.info(f'Mean lpips value from sample metric is {df_lpips_group["Mean LPIPS per Frame"]}')
             else:
                 mean_divscore = torch.mean(torch.tensor(self.ae.div_scores))
                 self.ae.console_logger.info(f'Diversity score averaged over all pokes is {mean_divscore}')
@@ -165,7 +174,10 @@ class SecondStageVideoModel(Experiment):
             self.config['data']['n_pokes'] = self.config['testing']['n_test_pokes'] if 'n_test_pokes' in self.config['testing'] else self.config['data']['n_pokes']
             # if self.config['data']['n_pokes'] == 1:
             #     self.config['data']['fix_n_pokes'] = True
-            if self.config['general']['test'] == 'transfer' or self.config['general']['test']=='control_sensitivity':
+            if self.config['general']['test'] in [
+                'transfer',
+                'control_sensitivity',
+            ]:
                 self.config['data']['n_pokes']=1
                 # self.config['data']['fix_n_pokes'] = True
 
@@ -174,7 +186,10 @@ class SecondStageVideoModel(Experiment):
             if self.config['general']['test'] == 'fvd':
                 self.config['data']['test_batch_size'] = 16
                 n_test_batches = int(math.ceil(self.config['testing']['n_samples_fvd'] / self.config['data']['test_batch_size']))
-            elif self.config['general']['test'] == 'samples' or self.config['general']['test'] == 'control_sensitivity':
+            elif self.config['general']['test'] in [
+                'samples',
+                'control_sensitivity',
+            ]:
                 n_test_batches = self.config['testing']['n_samples_vis'] // self.config['data']['test_batch_size']
             else:
                 n_test_batches = int(math.ceil(self.config['testing']['n_samples_metrics'] / self.config['data']['test_batch_size']))
